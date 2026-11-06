@@ -36,3 +36,14 @@ Null means no measured reception; it is not an invented weak RSSI. A prototype's
 This is room classification, not geometric triangulation or a continuous physical position. Similar signal patterns may remain uncertain regardless of the number of recordings. Timings and comparison thresholds need independent household evaluation. A successful replay of training recordings does not establish accuracy on new walks.
 
 Tests cover signal patterns, missing/offline receivers, multiple orientations, ambiguity, distinct-observation confirmation, elapsed-time transitions, expired observations, persistent model round trips, administrator permissions and concurrent revision checks. They do not measure real-world room accuracy or replace the full integration test suite.
+
+
+## Walk-test recorder and replay
+
+The optional `bermuda.walk_test` response service supports `status`, `start`, `stop`, `get`, `annotate` and `delete`. Mutations require an administrator context (or internal automation). Start accepts a label and `setup_confirmed` boolean; leave it false for diagnostic walks with receivers moved from calibration positions. Get/stop/delete use `walk_id`; annotate additionally uses `expected_revision`, `from_ms`, `to_ms` and `room_id`.
+
+Walks are stored separately from the calibration model. Each captures an immutable model snapshot, initial temporal state, RSSI vectors, actual packet evidence identities, unavailable sources and the backend's results on normal coordinator updates. There are no new radio subscriptions. Recording continues without a dashboard and stops after ten minutes or if the tracked signature/model revision changes. Up to six walks are retained; export and explicitly delete older walks to make space. Periodic saves occur every fifteen seconds; graceful manual stops save immediately. After a restart an unfinished walk is marked interrupted rather than silently resumed.
+
+Room interval annotations evaluate a walk; they never become training samples. Overlapping intervals and stale annotation revisions are rejected. Replay reports exact room accuracy only over independently labelled, observed time. Coarse group matches, uncertainty and gaps are separate quantities. Receiver placement not confirmed means diagnostic-only; no accuracy claim is appropriate. A replay need not agree exactly with recorded predictions after a deliberate estimator change. Candidate calibration comparisons start with a cold temporal state.
+
+The mobile frontend includes walk controls and a portable offline replay page. The browser replay can export its report and run without a Home Assistant connection. A Node CLI is also available in the frontend source: `node presence-replay.js walk.json [candidate-model.json]`.

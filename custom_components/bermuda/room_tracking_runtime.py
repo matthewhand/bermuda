@@ -22,6 +22,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .room_tracking import ESTIMATORS, TemporalTracker
+from .walk_test import WalkTestRecorder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,9 +154,14 @@ class RoomTrackingManager:
         self.last_signature = None
         self.unavailable_sources = []
         self._save_lock = asyncio.Lock()
+        self.walks = WalkTestRecorder(hass, entry, self)
 
     async def async_load(self):
         """Load the model without making old or corrupt calibration mandatory."""
+        try:
+            await self.walks.async_load()
+        except (ValueError, TypeError, KeyError, OSError, HomeAssistantError):
+            _LOGGER.warning("Walk-test history could not load; calibration storage is independent")
         try:
             stored = await self.store.async_load()
             if stored is not None:
@@ -166,6 +172,7 @@ class RoomTrackingManager:
 
     def async_register_services(self):
         """Register model read/save services; no radio changes are made."""
+        self.walks.async_register_services()
 
         async def get_model(_call):
             return {
@@ -212,6 +219,7 @@ class RoomTrackingManager:
     def update(self):
         """Run from normal coordinator updates; never modify the legacy Area sensor."""
         if not self.model or not self.model.get("enabled", False):
+            self.walks.interrupt()
             self.result = {"kind": "disabled", "location": None}
             return
         try:
@@ -267,3 +275,4 @@ class RoomTrackingManager:
             "observedReceivers": sum(value is not None for value in vector.values()),
             "unavailableSources": self.unavailable_sources,
         }
+        self.walks.capture(now, vector, evidence, signature, offline, self.result)
