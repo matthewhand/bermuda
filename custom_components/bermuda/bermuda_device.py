@@ -540,8 +540,11 @@ class BermudaDevice(dict):
             except (KeyError, AttributeError):
                 # No current record, device might have "stale"d out.
                 return None
-        # Probably a usb / BlueZ device.
-        return None
+        # Newer HA versions can deliver per-packet callbacks even when local
+        # scanner caches have no timestamps. Only actual packets populate this.
+        capture = getattr(self._coordinator, "local_ibeacon", None)
+        stamp = capture.get_stamp(self.address, address) if capture else None
+        return stamp if isinstance(stamp, int | float) else None
 
     @callback
     def async_handle_pble_callback(

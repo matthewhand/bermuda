@@ -94,6 +94,7 @@ from .const import (
     SIGNAL_SCANNERS_CHANGED,
     UPDATE_INTERVAL,
 )
+from .local_ibeacon import LocalIBeaconCapture
 from .util import mac_explode_formats, mac_norm
 
 if TYPE_CHECKING:
@@ -186,6 +187,18 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         self._manager: HomeAssistantBluetoothManager = _get_manager(hass)  # instance of the bluetooth manager
         self._hascanners: set[BaseHaScanner] = set()  # Links to the backend scanners
         self._hascanner_timestamps: dict[str, dict[str, float]] = {}  # scanner_address, device_address, stamp
+        register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
+        self.local_ibeacon = LocalIBeaconCapture(
+            (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
+            lambda: self.options.get(CONF_DEVICES, []),
+            lambda source: (scanner := self._get_device(source)) is not None
+            and scanner.is_scanner
+            and not scanner.is_remote_scanner,
+            monotonic_time_coarse,
+        )
+        self.config_entry.async_on_unload(self.local_ibeacon.close)
+        if register_packet:
+            _LOGGER.info("Configured iBeacon packet timestamp capture enabled")
         self._scanner_list: set[str] = set()
         self._scanners: set[BermudaDevice] = set()  # Set of all in self.devices that is_scanner=True
         self.irk_manager = BermudaIrkManager()
@@ -521,6 +534,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         # If there are no active entities created after Bermuda's
         # initial setup, then no updates will be triggered on the co-ordinator.
         # So let's check if we haven't updated recently, and do so...
+        self.local_ibeacon.observe(service_info)
         if self.stamp_last_update < monotonic_time_coarse() - (UPDATE_INTERVAL * 2):
             self._async_update_data_internal()
 
@@ -731,6 +745,15 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         # Initialise ha_scanners if we haven't already
         if self._scanner_init_pending:
             self._refresh_scanners(force=True)
+
+        # Process proven local packets first: a stale scanner-cache record must
+        # not claim their timestamp and cause the actual packet to be skipped.
+        for service_info in self.local_ibeacon.drain():
+            scanner_device = self._get_device(service_info.source)
+            if scanner_device is None or not scanner_device.is_scanner or scanner_device.is_remote_scanner:
+                continue
+            device = self._get_or_create_device(service_info.address)
+            device.process_advertisement(scanner_device, service_info.advertisement)
 
         for ha_scanner in self._hascanners:
             # Create / Get the BermudaDevice for this scanner
@@ -1360,11 +1383,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                 continue
 
             # If we are too far away or don't have an area, we cannot win...
-            if (
-                challenger.rssi_distance is None
-                or challenger.rssi_distance > _max_radius
-                or challenger.area_id is None
-            ):
+            if challenger.rssi_distance is None or challenger.rssi_distance > _max_radius or challenger.area_id is None:
                 continue
 
             # At this point the challenger is a vaild contender...
@@ -1373,9 +1392,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
 
             # If closest scanner lacks critical data, we win.
             if (
-                incumbent is None
-                or incumbent.rssi_distance is None
-                or incumbent.area_id is None
+                incumbent is None or incumbent.rssi_distance is None or incumbent.area_id is None
                 # Extra checks that are redundant but make linting easier later...
                 # or closest_advert.hist_distance_by_interval is None
             ):
@@ -1446,8 +1463,12 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
             pdiff_historical = 0.15  # Percentage difference required to win on historical test
             if len(challenger.hist_distance_by_interval) > min_history:  # we have enough history, let's go..
                 tests.hist_min_max = (
-                    min(incumbent.hist_distance_by_interval[:history_window]),  # The closest that the incumbent has been
-                    max(challenger.hist_distance_by_interval[:history_window]),  # The **furthest** we have been in that time
+                    min(
+                        incumbent.hist_distance_by_interval[:history_window]
+                    ),  # The closest that the incumbent has been
+                    max(
+                        challenger.hist_distance_by_interval[:history_window]
+                    ),  # The **furthest** we have been in that time
                 )
                 if (
                     tests.hist_min_max[1] < tests.hist_min_max[0]

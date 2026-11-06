@@ -139,9 +139,8 @@ class BermudaAdvert(dict):
         scanner = self.scanner_device
         new_stamp: float | None = None
 
-        if self.scanner_sends_stamps:
-            new_stamp = scanner.async_as_scanner_get_stamp(self.device_address)
-
+        new_stamp = scanner.async_as_scanner_get_stamp(self.device_address)
+        if self.scanner_sends_stamps or new_stamp is not None:
             if new_stamp is None:
                 self.stale_update_count += 1
                 _LOGGER.debug("Advert from %s for %s lacks stamp, unexpected.", scanner.name, self._device.name)
