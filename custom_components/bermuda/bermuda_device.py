@@ -540,8 +540,8 @@ class BermudaDevice(dict):
             except (KeyError, AttributeError):
                 # No current record, device might have "stale"d out.
                 return None
-        # Newer HA versions can deliver per-packet callbacks even when local
-        # scanner caches have no timestamps. Only actual packets populate this.
+        # HA Core 2026.10+ exposes per-packet callbacks. When supported by the
+        # backend, only validated raw packets populate these local timestamps.
         capture = getattr(self._coordinator, "local_ibeacon", None)
         stamp = capture.get_stamp(self.address, address) if capture else None
         return stamp if isinstance(stamp, int | float) else None

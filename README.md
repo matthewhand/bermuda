@@ -53,7 +53,8 @@ Bermuda aims to let you track any bluetooth device, and have Home Assistant tell
 
 ### Configured iBeacons and local Bluetooth adapters
 
-When available, Home Assistant's address-specific advertisement callback lets
+Home Assistant Core 2026.10 introduced the address-specific advertisement callback.
+When that API and raw backend data are available, this callback lets
 Bermuda distinguish a new iBeacon packet with unchanged RSSI from an old cached
 reading. Only packets containing the configured UUID, major and minor in their
 current raw advertisement refresh the local receiver's timestamp. A missing

@@ -187,18 +187,6 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         self._manager: HomeAssistantBluetoothManager = _get_manager(hass)  # instance of the bluetooth manager
         self._hascanners: set[BaseHaScanner] = set()  # Links to the backend scanners
         self._hascanner_timestamps: dict[str, dict[str, float]] = {}  # scanner_address, device_address, stamp
-        register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
-        self.local_ibeacon = LocalIBeaconCapture(
-            (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
-            lambda: self.options.get(CONF_DEVICES, []),
-            lambda source: (scanner := self._get_device(source)) is not None
-            and scanner.is_scanner
-            and not scanner.is_remote_scanner,
-            monotonic_time_coarse,
-        )
-        self.config_entry.async_on_unload(self.local_ibeacon.close)
-        if register_packet:
-            _LOGGER.info("Configured iBeacon packet timestamp capture enabled")
         self._scanner_list: set[str] = set()
         self._scanners: set[BermudaDevice] = set()  # Set of all in self.devices that is_scanner=True
         self.irk_manager = BermudaIrkManager()
@@ -280,6 +268,19 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                     self.options[key] = val
 
         self.devices: dict[str, BermudaDevice] = {}
+
+        register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
+        self.local_ibeacon = LocalIBeaconCapture(
+            (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
+            lambda: self.options.get(CONF_DEVICES, []),
+            lambda source: (scanner := self._get_device(source)) is not None
+            and scanner.is_scanner
+            and not scanner.is_remote_scanner,
+            monotonic_time_coarse,
+        )
+        self.config_entry.async_on_unload(self.local_ibeacon.close)
+        if register_packet:
+            _LOGGER.info("Configured iBeacon packet timestamp capture enabled")
         # self.updaters: dict[str, BermudaPBDUCoordinator] = {}
 
         # Register the dump_devices service

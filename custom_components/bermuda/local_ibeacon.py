@@ -69,6 +69,10 @@ class LocalIBeaconCapture:
 
     def get_stamp(self, source, address):
         """Return the last proven packet timestamp for this receiver/address."""
+        # Retain the last proven stamp, even after expiry: returning None would
+        # re-enable the RSSI-change fallback for an unproven scanner-cache entry.
+        # Distance expiry runs independently during every calculation cycle.
+        # These entries are bounded by subscribed addresses and removed on eviction.
         return self._stamps.get((source.lower(), address.upper()))
 
     def drain(self):
