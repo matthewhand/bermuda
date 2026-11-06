@@ -94,6 +94,7 @@ from .const import (
     SIGNAL_SCANNERS_CHANGED,
     UPDATE_INTERVAL,
 )
+from .room_tracking_runtime import RoomTrackingManager
 from .util import mac_explode_formats, mac_norm
 
 if TYPE_CHECKING:
@@ -268,6 +269,8 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
 
         self.devices: dict[str, BermudaDevice] = {}
         # self.updaters: dict[str, BermudaPBDUCoordinator] = {}
+
+        self.room_tracking = RoomTrackingManager(hass, entry, self)
 
         # Register the dump_devices service
         hass.services.async_register(
@@ -673,6 +676,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                 device.calculate_data()
 
             self._refresh_areas_by_min_distance()
+            self.room_tracking.update()
 
             # We might need to freshen deliberately on first start if no new scanners
             # were discovered in the first scan update. This is likely if nothing has changed

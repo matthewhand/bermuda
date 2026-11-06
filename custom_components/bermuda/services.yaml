@@ -13,3 +13,26 @@ dump_devices:
       required: false
       example: "False"
       default: false
+
+get_room_model:
+  name: Get room model
+  description: Read the optional calibration model and current learned-room estimate.
+save_room_model:
+  name: Save room model
+  description: Save an experimental room model. Existing Area sensors are unchanged.
+  fields:
+    expected_revision:
+      name: Expected revision
+      description: The revision last read, or zero for a new model.
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          mode: box
+    model:
+      name: Room model
+      description: Versioned room layout, receiver configuration and labelled recordings.
+      required: true
+      selector:
+        object:

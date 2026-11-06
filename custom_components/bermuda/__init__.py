@@ -43,6 +43,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: BermudaConfigEntry) -> b
         _LOGGER.info(STARTUP_MESSAGE)
     coordinator = BermudaDataUpdateCoordinator(hass, entry)
     entry.runtime_data = BermudaData(coordinator)
+    await coordinator.room_tracking.async_load()
+    coordinator.room_tracking.async_register_services()
 
     async def on_failure():
         _LOGGER.debug("Coordinator last update failed, rasing ConfigEntryNotReady")
