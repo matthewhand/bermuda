@@ -142,6 +142,7 @@ async def async_setup_entry(
             BermudaActiveProxyCount(coordinator, entry),
             BermudaTotalDeviceCount(coordinator, entry),
             BermudaVisibleDeviceCount(coordinator, entry),
+            BermudaLearnedRoom(coordinator, entry),
         )
     )
 
@@ -489,6 +490,52 @@ class BermudaGlobalSensor(BermudaGlobalEntity, SensorEntity):
     def device_class(self):
         """Return de device class of the sensor."""
         return "bermuda__custom_device_class"
+
+
+class BermudaLearnedRoom(BermudaGlobalSensor):
+    """Expose the experimental estimate separately from nearest-scanner Area."""
+
+    @property
+    def unique_id(self):
+        return f"BERMUDA_LEARNED_ROOM_{self.config_entry.entry_id}"
+
+    @property
+    def name(self):
+        return "Learned room"
+
+    @property
+    def device_class(self):
+        return None
+
+    @property
+    def native_value(self):
+        manager = self.coordinator.room_tracking
+        result = manager.result
+        location = result.get("location")
+        if result["kind"] == "disabled":
+            return "disabled"
+        if result["kind"] != "stable" or not location or not manager.model:
+            return result["kind"]
+        if location.startswith("group:"):
+            return next(
+                (
+                    group.get("label", group["id"])
+                    for group in manager.model.get("roomGroups", [])
+                    if "group:" + group["id"] == location
+                ),
+                None,
+            )
+        return next((room["label"] for room in manager.model["rooms"] if room["id"] == location), None)
+
+    @property
+    def extra_state_attributes(self):
+        manager = self.coordinator.room_tracking
+        return {
+            "estimator": "fingerprint",
+            "tracked_device": (manager.model or {}).get("config", {}).get("device", {}).get("id"),
+            "tracking_result": manager.result,
+            "unavailable_sources": manager.unavailable_sources,
+        }
 
 
 class BermudaTotalProxyCount(BermudaGlobalSensor):
