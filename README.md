@@ -44,7 +44,7 @@ Bermuda aims to let you track any bluetooth device, and have Home Assistant tell
 - One or more devices providing bluetooth proxy information to HA using HA's bluetooth backend. These can be:
   - ESPHome devices with the `bluetooth_proxy` component enabled. I like the D1-Mini32 boards because they're cheap and easy to deploy.
   - Shelly Plus or later devices with Bluetooth proxying enabled in the Shelly integration.
-  - USB Bluetooth on your HA host supports basic Area tracking. On Home Assistant Core 2026.10 or later, configured iBeacons can use per-packet receipt timestamps when the backend supplies raw advertisements. Other configurations retain the RSSI-change fallback; adapter compatibility still varies.
+  - USB Bluetooth on your HA host supports basic Area tracking, although finding a well-supported USB Bluetooth adaptor is non-trivial. On Home Assistant Core 2026.10 or later, configured iBeacons can use per-packet receipt timestamps when the backend supplies raw advertisements. Other configurations retain the RSSI-change fallback.
 
 - Some bluetooth BLE devices you want to track. Phones, smart watches, beacon tiles, thermometers etc.
 
