@@ -8,6 +8,7 @@ import pytest
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
+from custom_components.bermuda.bermuda_device import BermudaDevice
 from custom_components.bermuda.room_tracking_runtime import RoomTrackingManager, validate_room_model
 from tests.test_room_tracking import make_model
 
@@ -23,7 +24,12 @@ def setup_manager(hass, clock):
         )
         for key, rssi in [("a", -65), ("b", -85), ("c", None)]
     }
-    phone = SimpleNamespace(adverts=adverts, area_name="Original scanner area")
+    # Device observations live in attributes, while the inherited dict is empty.
+    # Exercise the real object's false truthiness, rather than a namespace stub.
+    phone = BermudaDevice.__new__(BermudaDevice)
+    phone.adverts = adverts
+    phone.area_name = "Original scanner area"
+    assert not phone
     coordinator = SimpleNamespace(
         _get_device=lambda key: phone if key == "beacon" else scanners.get(key), async_update_listeners=lambda: None
     )
