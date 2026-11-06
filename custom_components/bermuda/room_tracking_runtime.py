@@ -227,7 +227,7 @@ class RoomTrackingManager:
         device = self.coordinator._get_device(device_config["id"])  # noqa: SLF001
         now = monotonic_time_coarse()
         latest = {}
-        for advert in device.adverts.values() if device else ():
+        for advert in device.adverts.values() if device is not None else ():
             key = advert.scanner_address.lower()
             if key not in latest or advert.stamp > latest[key].stamp:
                 latest[key] = advert
