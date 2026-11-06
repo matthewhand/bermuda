@@ -44,33 +44,12 @@ Bermuda aims to let you track any bluetooth device, and have Home Assistant tell
 - One or more devices providing bluetooth proxy information to HA using HA's bluetooth backend. These can be:
   - ESPHome devices with the `bluetooth_proxy` component enabled. I like the D1-Mini32 boards because they're cheap and easy to deploy.
   - Shelly Plus or later devices with Bluetooth proxying enabled in the Shelly integration.
-  - USB Bluetooth on your HA host. Local scanner caches may lack per-device packet timestamps, and finding a well-supported USB Bluetooth adaptor is non-trivial. Basic Area distance support is available. For configured iBeacons, Bermuda can also use actual packet timestamps when Home Assistant provides the per-advertisement callback and raw packet data; see below.
+  - USB Bluetooth on your HA host supports basic Area tracking. On Home Assistant Core 2026.10 or later, configured iBeacons can use per-packet receipt timestamps when the backend supplies raw advertisements. Other configurations retain the RSSI-change fallback; adapter compatibility still varies.
 
 - Some bluetooth BLE devices you want to track. Phones, smart watches, beacon tiles, thermometers etc.
 
 - Bermuda! I strongly recommend installing Bermuda via HACS:
   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=agittins&repository=bermuda&category=Integration)
-
-### Configured iBeacons and local Bluetooth adapters
-
-Home Assistant Core 2026.10 introduced the address-specific advertisement callback.
-When that API and raw backend data are available, this callback lets
-Bermuda distinguish a new iBeacon packet with unchanged RSSI from an old cached
-reading. Only packets containing the configured UUID, major and minor in their
-current raw advertisement refresh the local receiver's timestamp. A missing
-callback API or missing raw data leaves the existing RSSI-change fallback in use.
-
-This does not start another scanner or change advertising power or intervals.
-Callbacks add work for packets received from subscribed addresses; Bermuda keeps
-only the latest pending observation per receiver/address for its normal processing
-cycle. Subscriptions are limited to 32 addresses across configured iBeacons and
-their rotating addresses, with the oldest subscription evicted at the limit.
-They are cancelled when the integration unloads. Remote receiver timestamps and
-the normal distance timeout are unchanged.
-
-This improves observation freshness, not radio coverage or the room-selection
-algorithm. Unsupported raw-packet backends and larger address populations still
-need evaluation.
 
 ## Documentation and help
 
