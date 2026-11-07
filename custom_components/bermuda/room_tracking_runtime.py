@@ -17,7 +17,8 @@ import re
 import voluptuous as vol
 from bluetooth_data_tools import monotonic_time_coarse
 from homeassistant.core import SupportsResponse
-from homeassistant.exceptions import HomeAssistantError, Unauthorized
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
@@ -155,14 +156,7 @@ class RoomTrackingManager:
     def async_register_services(self):
         """Register model read/save services; no radio changes are made."""
 
-        async def require_admin(call):
-            if user_id := call.context.user_id:
-                user = await self.hass.auth.async_get_user(user_id)
-                if user is None or not user.is_admin:
-                    raise Unauthorized
-
-        async def get_model(call):
-            await require_admin(call)
+        async def get_model(_call):
             return {
                 "model": copy.deepcopy(self.model),
                 "result": self.result,
@@ -170,7 +164,6 @@ class RoomTrackingManager:
             }
 
         async def save_model(call):
-            await require_admin(call)
             try:
                 model = validate_room_model(call.data["model"])
             except (ValueError, TypeError, KeyError) as err:
@@ -192,8 +185,11 @@ class RoomTrackingManager:
                 self.coordinator.async_update_listeners()
                 return {"model": copy.deepcopy(model), "result": self.result}
 
-        self.hass.services.async_register(DOMAIN, "get_room_model", get_model, supports_response=SupportsResponse.ONLY)
-        self.hass.services.async_register(
+        async_register_admin_service(
+            self.hass, DOMAIN, "get_room_model", get_model, supports_response=SupportsResponse.ONLY
+        )
+        async_register_admin_service(
+            self.hass,
             DOMAIN,
             "save_room_model",
             save_model,
