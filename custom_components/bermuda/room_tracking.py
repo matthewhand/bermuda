@@ -172,9 +172,15 @@ class TemporalTracker:
         """Update using monotonic milliseconds; never label the last room as current."""
         groups = model.get("roomGroups", [])
         edges = model.get("connections", [])
-        candidate_ids = [candidate["roomId"] for candidate in estimate.get("candidates", [])]
+        candidates = estimate.get("candidates", [])
+        candidate_ids = [candidate["roomId"] for candidate in candidates]
         target = estimate.get("roomId") if estimate["kind"] == "match" else None
-        if target is None and estimate["kind"] == "uncertain" and len(candidate_ids) >= 2:
+        if (
+            target is None
+            and estimate["kind"] == "uncertain"
+            and len(candidate_ids) >= 2
+            and all(candidate.get("common", 0) >= 2 for candidate in candidates)
+        ):
             group = next((group for group in groups if set(candidate_ids) <= set(group["rooms"])), None)
             if group:
                 target = "group:" + group["id"]

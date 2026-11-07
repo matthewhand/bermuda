@@ -132,12 +132,25 @@ def test_loss_of_reception_preserves_only_last_known_location(model):
 
 def test_open_plan_group_can_be_known_without_inventing_a_zone(model):
     model["roomGroups"] = [{"id": "open", "label": "Open area", "rooms": ["east", "west"]}]
-    estimate = {"kind": "uncertain", "candidates": [{"roomId": "east"}, {"roomId": "west"}]}
+    estimate = {"kind": "uncertain", "candidates": [{"roomId": "east", "common": 2}, {"roomId": "west", "common": 2}]}
     tracker = TemporalTracker()
     tracker.update(estimate, 0, (1,), model)
     result = tracker.update(estimate, 3000, (2,), model)
     assert result["location"] == "group:open"
     assert result["members"] == ["east", "west"]
+
+
+def test_area_group_requires_two_receivers_for_each_candidate(model):
+    model["roomGroups"] = [{"id": "open", "rooms": ["east", "west"]}]
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [{"roomId": "east", "common": 2}, {"roomId": "west", "common": 1}],
+    }
+    tracker = TemporalTracker()
+    for now in (0, 4000, 8000):
+        result = tracker.update(estimate, now, (now,), model)
+        assert result["kind"] == "uncertain"
+        assert result["location"] is None
 
 
 def test_drawing_coordinates_do_not_affect_fingerprints(model):
