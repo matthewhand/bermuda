@@ -781,10 +781,13 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Now go through the scanner's adverts and send them to our device objects.
             for bledevice, advertisementdata in ha_scanner.discovered_devices_and_advertisement_data.values():
-                if adstamp := scanner_device.async_as_scanner_get_stamp(bledevice.address):
-                    if adstamp < self.stamp_last_update_started - 3:
-                        # skip older adverts that should already have been processed
-                        continue
+                adstamp = scanner_device.async_as_scanner_get_stamp(bledevice.address)
+                if adstamp is not None and not scanner_device.is_remote_scanner:
+                    # Local links with proven packets use only the callback queue.
+                    continue
+                if adstamp and adstamp < self.stamp_last_update_started - 3:
+                    # Remote scanner caches still carry their own timestamps.
+                    continue
                 if advertisementdata.rssi == -127:
                     # BlueZ is pushing bogus adverts for paired but absent devices.
                     continue
@@ -936,6 +939,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         for device_address in prune_list:
             _LOGGER.debug("Acting on prune list for %s", device_address)
             del self.devices[device_address]
+        self.local_ibeacon.prune(self.devices)
 
         # Clean out the scanners dicts in metadevices and scanners
         # (scanners will have entries if they are also beacons, although

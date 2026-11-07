@@ -84,8 +84,10 @@ def test_merged_manufacturer_data_cannot_refresh_an_unrelated_raw_packet(capture
     capture.observe(packet(clock))
     capture.drain()
     clock[0] = 105
-    capture.capture(packet(clock, raw=b"unrelated packet"))
-    capture.capture(packet(clock, raw=None))
+    service_data = b"\x0f\x18\x4c\x00" + DATA
+    wrong_type = bytes((1 + len(service_data), 0x16)) + service_data
+    for raw in (wrong_type, bytes.fromhex("1bff4c00") + DATA, None):
+        capture.capture(packet(clock, raw=raw, rssi=-71))
     assert capture.drain() == []
     assert capture.get_stamp(SOURCE, ADDRESS) == 100
 
@@ -97,11 +99,26 @@ def test_remote_observations_do_not_enter_the_local_path(capture_fixture):
     assert capture.get_stamp("remote", ADDRESS) is None
 
 
+def test_proxy_discovery_enrolls_local_packets_without_evicting_proven_links(capture_fixture):
+    capture, clock, callbacks = capture_fixture
+    capture.observe(packet(clock, source="remote"))
+    # The local packet may reach only the per-address callback if the proxy wins discovery.
+    callbacks[ADDRESS](packet(clock, raw=bytes.fromhex("0201061aff4c00") + DATA))
+    for index in range(2, 34):
+        capture.observe(packet(clock, address=f"AA:BB:CC:DD:EE:{index:02X}", source="remote"))
+    assert len(callbacks) == 2
+    assert ADDRESS in callbacks
+    assert capture.get_stamp(SOURCE, ADDRESS) == 100
+
+
 def test_rotation_is_bounded_and_callbacks_are_unloaded(capture_fixture):
     capture, clock, callbacks = capture_fixture
     for suffix in ("01", "02", "03"):
         capture.observe(packet(clock, address="AA:BB:CC:DD:EE:" + suffix))
     assert len(callbacks) == 2
+    assert ADDRESS not in callbacks
+    assert capture.get_stamp(SOURCE, ADDRESS) == 100
+    capture.prune(["aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"])
     assert capture.get_stamp(SOURCE, ADDRESS) is None
     capture.close()
     assert callbacks == {}
@@ -193,7 +210,7 @@ def test_actual_cache_skip_guard_does_not_prevent_distance_expiry(capture_fixtur
     from custom_components.bermuda.coordinator import BermudaDataUpdateCoordinator
     from custom_components.bermuda.bermuda_device import BermudaDevice
 
-    capture, clock, _ = capture_fixture
+    capture, clock, callbacks = capture_fixture
     monkeypatch.setattr("custom_components.bermuda.coordinator.monotonic_time_coarse", lambda: clock[0])
     coor = SimpleNamespace(local_ibeacon=capture, _scanner_init_pending=False, stamp_last_update_started=0)
     scanner = SimpleNamespace(
@@ -246,6 +263,11 @@ def test_actual_cache_skip_guard_does_not_prevent_distance_expiry(capture_fixtur
     links[0].calculate_data()
     assert links[0].stamp == 160
     assert links[0].rssi_distance is not None
+    # Valid local rotations can evict a subscription, but its cache still
+    # cannot replace the last proven packet or refresh distance.
+    for suffix in ("02", "03"):
+        capture.observe(packet(clock, address="AA:BB:CC:DD:EE:" + suffix))
+    assert ADDRESS not in callbacks
     processed.clear()
     clock[0] = 192
     coor.stamp_last_update_started = 191

@@ -24,56 +24,79 @@ class LocalIBeaconCapture:
         self._pending = {}
         self._stamps = {}
 
-    def _identity(self, info):
-        data = info.manufacturer_data.get(76, b"")
-        if len(data) < 22 or data[:2] != b"\x02\x15":
-            return None
+    def _configured_identity(self, data):
+        if len(data) < 23 or data[:2] != b"\x02\x15":
+            return False
         identity = f"{data[2:18].hex()}_{int.from_bytes(data[18:20], 'big')}_{int.from_bytes(data[20:22], 'big')}"
-        return identity if identity.upper() in self._configured() else None
+        return identity.upper() in self._configured()
+
+    def _is_configured_packet(self, raw):
+        """Read BLE advertising structures, which include a length and type."""
+        offset = 0
+        while offset < len(raw):
+            length = raw[offset]
+            end = offset + 1 + length
+            if not length or end > len(raw):
+                return False
+            if (
+                length >= 26
+                and raw[offset + 1 : offset + 4] == b"\xff\x4c\x00"
+                and self._configured_identity(raw[offset + 4 : end])
+            ):
+                return True
+            offset = end
+        return False
+
+    def _local_stamp(self, info):
+        """Return the receipt time only for a usable, matching local packet."""
+        if not self._is_local(info.source) or not isinstance(info.rssi, int | float) or not -127 < info.rssi < 0:
+            return None
+        # HA can retain Apple manufacturer data from an earlier packet.
+        if not self._is_configured_packet(getattr(info, "raw", None) or b""):
+            return None
+        stamp = info.time
+        now = self._clock()
+        if not isinstance(stamp, int | float) or not math.isfinite(stamp) or stamp > now + 5 or stamp < now - 30:
+            return None
+        return stamp
 
     def observe(self, info):
-        """Enroll only configured iBeacon addresses as discovery sees them."""
-        if self._register is None or self._identity(info) is None:
+        """Discover configured addresses from HA's merged metadata."""
+        if self._register is None or not self._configured_identity(info.manufacturer_data.get(76, b"")):
             return
         address = info.address.upper()
         if address not in self._cancel:
             if len(self._cancel) >= self._max_addresses:
-                self._forget(next(iter(self._cancel)))
+                # Keep speculative addresses for mixed proxy/local discovery, but
+                # only genuine local packets can displace a proven subscription.
+                candidate = next((key for key in self._cancel if key not in self._stamps), None)
+                if candidate is None:
+                    if self._local_stamp(info) is None:
+                        return
+                    candidate = min(self._cancel, key=lambda key: max(self._stamps[key].values()))
+                self._cancel.pop(candidate)()
             self._cancel[address] = self._register(self.capture, address)
         self.capture(info)
 
     def capture(self, info):
         """Record actual, fresh packets, including equal-RSSI repeats."""
-        if self._identity(info) is None or not self._is_local(info.source):
-            return
-        if not isinstance(info.rssi, int | float) or not -127 < info.rssi < 0:
-            return
         address = info.address.upper()
         if address not in self._cancel:
             return
-        raw = getattr(info, "raw", None)
-        data = info.manufacturer_data.get(76, b"")
-        # Manufacturer data is merged across packets by HA. Do not treat a
-        # different packet from the same address as proof of this iBeacon.
-        if not raw or b"\x4c\x00" + data[:22] not in raw:
+        stamp = self._local_stamp(info)
+        if stamp is None:
             return
-        stamp = info.time
-        now = self._clock()
-        if not isinstance(stamp, int | float) or not math.isfinite(stamp) or stamp > now + 5 or stamp < now - 30:
+        source = info.source.lower()
+        stamps = self._stamps.setdefault(address, {})
+        if stamp <= stamps.get(source, -1):
             return
-        key = (info.source.lower(), address)
-        if stamp <= self._stamps.get(key, -1):
-            return
-        self._stamps[key] = stamp
-        self._pending[key] = info
+        stamps[source] = stamp
+        self._pending[source, address] = info
 
     def get_stamp(self, source, address):
-        """Return the last proven packet timestamp for this receiver/address."""
-        # Retain the last proven stamp, even after expiry: returning None would
-        # re-enable the RSSI-change fallback for an unproven scanner-cache entry.
-        # Distance expiry runs independently during every calculation cycle.
-        # These entries are bounded by subscribed addresses and removed on eviction.
-        return self._stamps.get((source.lower(), address.upper()))
+        """Return the last proven receipt time, even after subscription eviction."""
+        stamps = self._stamps.get(address.upper())
+        return stamps.get(source.lower()) if stamps else None
 
     def drain(self):
         """Coalesce high-rate adverts until Bermuda's next normal update."""
@@ -82,15 +105,21 @@ class LocalIBeaconCapture:
         now = self._clock()
         return [info for info in pending.values() if now - info.time <= 30]
 
-    def _forget(self, address):
-        cancel = self._cancel.pop(address)
-        cancel()
-        for key in list(self._stamps):
-            if key[1] == address:
-                self._stamps.pop(key, None)
-                self._pending.pop(key, None)
+    def prune(self, devices):
+        """Forget packet history once Bermuda no longer tracks the address."""
+        if not self._stamps:
+            return
+        for address in self._stamps.keys() - {address.upper() for address in devices}:
+            cancel = self._cancel.pop(address, None)
+            if cancel is not None:
+                cancel()
+            for source in self._stamps.pop(address):
+                self._pending.pop((source, address), None)
 
     def close(self):
         """Release callbacks and observations when the integration unloads."""
-        for address in list(self._cancel):
-            self._forget(address)
+        for cancel in self._cancel.values():
+            cancel()
+        self._cancel.clear()
+        self._stamps.clear()
+        self._pending.clear()
