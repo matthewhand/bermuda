@@ -157,6 +157,71 @@ def shortest_path(start: str, target: str, edges: list) -> float:
     return math.inf
 
 
+def resolve_tie(estimate, settings, previous_rooms, elapsed, connections, wireless_charging):
+    """Use independent context only when two BLE candidates are close."""
+    candidates = estimate.get("candidates", [])
+    if (
+        estimate["kind"] != "uncertain"
+        or len(candidates) != 2
+        or abs(candidates[0].get("score", 0) - candidates[1].get("score", 0)) >= 0.75
+        or any(candidate.get("common", 0) < 1 for candidate in candidates)
+    ):
+        return estimate
+
+    options = candidates
+    hints = []
+    charging_rooms = set(settings.get("wirelessRooms", []))
+    no_charging = set(settings.get("noWirelessRooms", []))
+    ids = {candidate["roomId"] for candidate in options}
+    if wireless_charging and ids & charging_rooms and ids & no_charging:
+        options = [candidate for candidate in options if candidate["roomId"] not in no_charging]
+        hints.append("Wireless charging")
+
+    if settings.get("recentRoom") and previous_rooms:
+        distances = {
+            candidate["roomId"]: min(shortest_path(room, candidate["roomId"], connections) for room in previous_rooms)
+            for candidate in options
+        }
+        possible = [
+            candidate
+            for candidate in options
+            if distances[candidate["roomId"]] == 0 or elapsed >= min_travel_time(distances[candidate["roomId"]])
+        ]
+        if not possible:
+            return estimate
+        if len(possible) < len(options):
+            options = possible
+            hints.append("Recent room and travel time")
+        if len(options) == 2:
+
+            def cost(candidate):
+                distance = min(2, distances[candidate["roomId"]])
+                return candidate["score"] + 0.6 * distance * max(0, 1 - elapsed / 30000)
+
+            first, second = sorted(options, key=cost)
+            if cost(second) - cost(first) >= 0.75:
+                options = [first]
+                hints.append("Recent room and travel time")
+
+    if len(options) != 1 or not hints:
+        return estimate
+    winner = options[0]
+    if winner["common"] < 2 and "Wireless charging" not in hints:
+        return estimate
+    return {
+        **estimate,
+        "kind": "match",
+        "roomId": winner["roomId"],
+        "confidence": "Supported by " + " and ".join(hint.lower() for hint in hints),
+        "hints": hints,
+    }
+
+
+def min_travel_time(distance):
+    """Minimum milliseconds for a move across the room graph."""
+    return max(4000, distance * 3000) if math.isfinite(distance) else 20000
+
+
 class TemporalTracker:
     """Require fresh evidence, elapsed dwell time and plausible graph travel time."""
 
@@ -168,10 +233,22 @@ class TemporalTracker:
         self.count = 0
         self.evidence = None
 
-    def update(self, estimate: dict, now: float, evidence: tuple, model: dict) -> dict:
+    def update(self, estimate: dict, now: float, evidence: tuple, model: dict, *, wireless_charging=False) -> dict:
         """Update using monotonic milliseconds; never label the last room as current."""
         groups = model.get("roomGroups", [])
         edges = model.get("connections", [])
+        elapsed = math.inf if self.confirmed_at is None else now - self.confirmed_at
+        previous = self.confirmed if elapsed <= 30000 else None
+
+        def members(location):
+            if not location:
+                return []
+            if location.startswith("group:"):
+                return next((group["rooms"] for group in groups if "group:" + group["id"] == location), [])
+            return [location]
+
+        estimate = resolve_tie(estimate, model.get("hints", {}), members(previous), elapsed, edges, wireless_charging)
+        hints = estimate.get("hints", [])
         candidates = estimate.get("candidates", [])
         candidate_ids = [candidate["roomId"] for candidate in candidates]
         target = estimate.get("roomId") if estimate["kind"] == "match" else None
@@ -185,21 +262,14 @@ class TemporalTracker:
             if group:
                 target = "group:" + group["id"]
 
-        def members(location):
-            if not location:
-                return []
-            if location.startswith("group:"):
-                return next((group["rooms"] for group in groups if "group:" + group["id"] == location), [])
-            return [location]
-
-        elapsed = math.inf if self.confirmed_at is None else now - self.confirmed_at
-        previous = self.confirmed if elapsed <= 30000 else None
         base = {
             "lastLocation": self.confirmed,
             "lastSeenAge": None if self.confirmed_at is None else elapsed,
             "candidates": estimate.get("candidates", []),
             "reason": estimate.get("reason"),
         }
+        if hints:
+            base["hints"] = hints
         if target is None:
             self.pending = None
             self.count = 0
@@ -214,7 +284,8 @@ class TemporalTracker:
             return {**base, "kind": kind, "location": None, "candidates": nearby}
         if target == previous:
             if evidence != self.evidence:
-                self.confirmed_at = now
+                if "Recent room and travel time" not in hints:
+                    self.confirmed_at = now
                 self.evidence = evidence
             self.pending = None
             return {
@@ -238,7 +309,7 @@ class TemporalTracker:
             else 0
         )
         dwell = (6000 if distance <= 1 else 10000) if previous else 3000
-        travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0
+        travel = min_travel_time(distance) if previous else 0
         if self.count >= 2 and now - self.pending_since >= dwell and elapsed >= travel:
             self.confirmed = target
             self.confirmed_at = now

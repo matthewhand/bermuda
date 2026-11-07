@@ -74,7 +74,7 @@ class WalkTestRecorder:
             self.active = None
             self.store.async_delay_save(self._data, 0)
 
-    def capture(self, now, vector, evidence, signature, unavailable, result):
+    def capture(self, now, vector, evidence, signature, unavailable, result, *, wireless_charging=False):
         walk = self.active
         if walk is None:
             return
@@ -94,6 +94,7 @@ class WalkTestRecorder:
                 "evidence": [list(item) for item in evidence],
                 "signature": signature,
                 "unavailableSources": sorted(unavailable),
+                "wirelessCharging": wireless_charging,
                 "recorded": copy.deepcopy(result),
             }
         )
@@ -144,7 +145,7 @@ class WalkTestRecorder:
                     "frames": [],
                     "markers": [],
                     "annotations": [],
-                    "engine": "fingerprint-v2",
+                    "engine": "fingerprint-v3",
                 }
                 tracker = self.manager.tracker
                 walk["initialTracker"] = {

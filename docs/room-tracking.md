@@ -24,6 +24,7 @@ The version-1 model contains:
 - `rooms`: objects with unique `id` and `label`. Drawing coordinates are optional and ignored by the estimator.
 - `connections`: pairs of connected room identifiers.
 - Optional `roomGroups`: objects with `id`, `label` and a list of `rooms`.
+- Optional `hints`: `recentRoom` enables route and elapsed-time preferences for close candidates. `wirelessRooms` and `noWirelessRooms` list rooms with known charger availability. `chargerEntity` and `batteryEntity` identify the tracked phone’s Companion sensors. Both states must be current and report wireless charging. Unspecified rooms remain neutral.
 - `receiverLayoutVersion`: increment when moving receivers so previous recordings cannot silently train the new arrangement.
 - `samples`: up to 120 labelled prototypes. Each has `roomId`, `signature`, and `signals` mapping receiver keys to either null or an object containing `median`, `mad` and `count`.
 

@@ -153,6 +153,57 @@ def test_area_group_requires_two_receivers_for_each_candidate(model):
         assert result["location"] is None
 
 
+def test_wireless_hint_resolves_a_close_single_receiver_tie(model):
+    model["hints"] = {"wirelessRooms": ["east"], "noWirelessRooms": ["west"]}
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [
+            {"roomId": "west", "score": 0.4, "common": 1},
+            {"roomId": "east", "score": 0.5, "common": 1},
+        ],
+    }
+    tracker = TemporalTracker()
+    assert tracker.update(estimate, 0, (1,), model)["kind"] == "uncertain"
+    proposed = tracker.update(estimate, 1000, (2,), model, wireless_charging=True)
+    assert proposed["proposed"] == "east"
+    assert proposed["hints"] == ["Wireless charging"]
+    assert tracker.update(estimate, 4000, (3,), model, wireless_charging=True)["location"] == "east"
+    model["hints"]["noWirelessRooms"] = []
+    assert tracker.update(estimate, 5000, (4,), model, wireless_charging=True)["kind"] == "uncertain"
+
+
+def test_travel_hint_favours_previous_room_without_renewing_it(model):
+    model["hints"] = {"recentRoom": True}
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [
+            {"roomId": "west", "score": 0.4, "common": 2},
+            {"roomId": "east", "score": 0.5, "common": 2},
+        ],
+    }
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    result = tracker.update(estimate, 4000, (3,), model)
+    assert result["location"] == "east"
+    assert result["hints"] == ["Recent room and travel time"]
+    assert tracker.confirmed_at == 3000
+    assert tracker.update(estimate, 34000, (4,), model)["kind"] == "uncertain"
+
+
+def test_charging_does_not_override_an_impossible_move(model):
+    model["hints"] = {"recentRoom": True, "wirelessRooms": ["west"], "noWirelessRooms": ["east"]}
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [
+            {"roomId": "west", "score": 0.4, "common": 2},
+            {"roomId": "east", "score": 0.5, "common": 2},
+        ],
+    }
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    assert tracker.update(estimate, 4000, (3,), model, wireless_charging=True)["kind"] == "uncertain"
+
+
 def test_drawing_coordinates_do_not_affect_fingerprints(model):
     before = FingerprintEstimator().estimate({"a": -65, "b": -85, "c": None}, model, SIG)
     changed = deepcopy(model)

@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import re
+from datetime import UTC, datetime
 
 import voluptuous as vol
 from bluetooth_data_tools import monotonic_time_coarse
@@ -58,6 +59,21 @@ def _validate_recordings(samples, ids):
                 or not 1 <= signal["count"] <= 10000
             ):
                 _reject("Invalid RSSI, dispersion or observation count")
+
+
+def _validate_hints(hints, ids):
+    if not isinstance(hints, dict) or not isinstance(hints.get("recentRoom", False), bool):
+        _reject("Invalid tracking hints")
+    for field in ("wirelessRooms", "noWirelessRooms"):
+        values = hints.get(field, [])
+        if not isinstance(values, list) or any(not isinstance(room, str) or room not in ids for room in values):
+            _reject("Charging hints must reference rooms in this plan")
+    if set(hints.get("wirelessRooms", [])) & set(hints.get("noWirelessRooms", [])):
+        _reject("A room cannot be marked both with and without a wireless charger")
+    for field in ("chargerEntity", "batteryEntity"):
+        entity = hints.get(field, "")
+        if not isinstance(entity, str) or (entity and not re.fullmatch(r"sensor\.[a-z0-9_]+", entity)):
+            _reject("Choose a valid phone sensor for charging hints")
 
 
 def validate_room_model(value):
@@ -132,6 +148,7 @@ def validate_room_model(value):
         ):
             _reject("Invalid room group")
     _validate_recordings(samples, ids)
+    _validate_hints(model.get("hints", {}), ids)
     if model.get("estimator", "fingerprint") not in ESTIMATORS:
         _reject("Unsupported room estimator")
     if not isinstance(model.get("enabled", False), bool):
@@ -268,11 +285,24 @@ class RoomTrackingManager:
             self.tracker = TemporalTracker()
             self.last_signature = signature
         estimate = self.estimator.estimate(vector, model, signature, offline)
+        settings = model.get("hints", {})
+        charger = self.hass.states.get(settings.get("chargerEntity", ""))
+        battery = self.hass.states.get(settings.get("batteryEntity", ""))
+        wall_time = datetime.now(UTC)
+        wireless_charging = bool(
+            charger is not None
+            and battery is not None
+            and charger.state == "wireless"
+            and battery.state == "charging"
+            and all(0 <= (wall_time - state.last_reported).total_seconds() <= 1200 for state in (charger, battery))
+        )
         self.result = {
-            **self.tracker.update(estimate, now * 1000, tuple(sorted(evidence)), model),
+            **self.tracker.update(
+                estimate, now * 1000, tuple(sorted(evidence)), model, wireless_charging=wireless_charging
+            ),
             "estimator": model.get("estimator", "fingerprint"),
             "weights": estimate.get("weights", {}),
             "observedReceivers": sum(value is not None for value in vector.values()),
             "unavailableSources": self.unavailable_sources,
         }
-        self.walks.capture(now, vector, evidence, signature, offline, self.result)
+        self.walks.capture(now, vector, evidence, signature, offline, self.result, wireless_charging=wireless_charging)
