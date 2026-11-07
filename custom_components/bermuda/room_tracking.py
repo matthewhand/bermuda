@@ -43,17 +43,15 @@ class FingerprintEstimator:
         ]
         trained = {sample["roomId"] for sample in samples}
         offline = unavailable or set()
-        if not any(_finite(value) for key, value in current.items() if key not in offline):
+        manual = {receiver["key"].lower(): receiver.get("weight", 1) for receiver in model["config"]["receivers"]}
+        keys = manual.keys() - offline
+        if not any(_finite(current.get(key)) for key in keys):
             return {"kind": "unknown", "reason": "No fresh phone readings", "candidates": []}
         if len(trained) < 2:
             reason = "Record another room to compare" if trained else "No room samples yet"
             return {"kind": "learning", "reason": reason, "candidates": []}
-        keys = set(current)
-        for sample in samples:
-            keys.update(sample["signals"])
         noise = {}
         weights = {}
-        manual = {receiver["key"]: receiver.get("weight", 1) for receiver in model["config"]["receivers"]}
         for key in keys:
             values = [sample["signals"][key] for sample in samples if sample["signals"].get(key)]
             deviations = [1.4826 * value["mad"] for value in values]
@@ -69,13 +67,13 @@ class FingerprintEstimator:
                     centres.append(median(room_values))
             mean = sum(centres) / len(centres) if centres else 0
             spread = math.sqrt(sum((value - mean) ** 2 for value in centres) / len(centres)) if centres else 0
-            weights[key] = (0.5 + min(1.5, spread / (noise[key] + 2))) * max(0.1, min(5, manual.get(key, 1)))
-        denominator = sum(weight for key, weight in weights.items() if key not in offline) or 1
+            weights[key] = (0.5 + min(1.5, spread / (noise[key] + 2))) * max(0.1, min(5, manual[key]))
+        denominator = sum(weights.values()) or 1
         by_room = defaultdict(list)
         for sample in samples:
             loss = 0
             common = quality = contradictions = 0
-            for key in keys - offline:
+            for key in keys:
                 reference = sample["signals"].get(key)
                 live = _finite(current.get(key))
                 if reference and live:
@@ -166,10 +164,23 @@ class TemporalTracker:
         self.pending = None
         self.pending_since = 0
         self.count = 0
-        self.evidence = None
+        self.receiver_stamps: dict[str, float] = {}
 
-    def update(self, estimate: dict, now: float, evidence: tuple, model: dict) -> dict:
-        """Update using monotonic milliseconds; never label the last room as current."""
+    def update(
+        self, estimate: dict, now: float, evidence: dict[str, float], model: dict, eligible: set[str] | None = None
+    ) -> dict:
+        """Track receipt times in monotonic milliseconds, counting only eligible receivers."""
+        newest = max(
+            (
+                stamp
+                for key, stamp in evidence.items()
+                if (eligible is None or key in eligible) and stamp > self.receiver_stamps.get(key, -math.inf)
+            ),
+            default=None,
+        )
+        # Remember excluded observations too, so going back online cannot replay them.
+        for key, stamp in evidence.items():
+            self.receiver_stamps[key] = max(stamp, self.receiver_stamps.get(key, -math.inf))
         edges = model.get("connections", [])
         target = estimate.get("roomId") if estimate["kind"] == "match" else None
 
@@ -190,9 +201,8 @@ class TemporalTracker:
             kind = estimate["kind"] if estimate["kind"] in {"learning", "unknown"} else "uncertain"
             return {**base, "kind": kind, "location": None, "candidates": nearby}
         if target == previous:
-            if evidence != self.evidence:
+            if newest is not None:
                 self.confirmed_at = now
-                self.evidence = evidence
             self.pending = None
             return {
                 **base,
@@ -204,14 +214,17 @@ class TemporalTracker:
             self.pending = target
             self.pending_since = now
             self.count = 0
-            self.evidence = None
-        if evidence != self.evidence:
-            self.evidence = evidence
+        if newest is not None:
             self.count += 1
         distance = shortest_path(previous, target, edges) if previous else 0
         dwell = (6000 if distance <= 1 else 10000) if previous else 3000
         travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0
-        if self.count >= 2 and now - self.pending_since >= dwell and elapsed >= travel:
+        if (
+            newest is not None
+            and self.count >= 2
+            and min(now, newest) - self.pending_since >= dwell
+            and (previous is None or min(now, newest) - self.confirmed_at >= travel)
+        ):
             self.confirmed = target
             self.confirmed_at = now
             self.pending = None

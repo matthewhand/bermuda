@@ -98,32 +98,32 @@ def fix(room):
 
 
 def establish(tracker, model):
-    assert tracker.update(fix("east"), 0, (1,), model)["kind"] == "transition"
-    assert tracker.update(fix("east"), 3000, (2,), model)["location"] == "east"
+    assert tracker.update(fix("east"), 0, {"a": 0}, model)["kind"] == "transition"
+    assert tracker.update(fix("east"), 3000, {"a": 3000}, model)["location"] == "east"
 
 
 def test_far_room_cannot_teleport_after_burst_of_observations(model):
     tracker = TemporalTracker()
     establish(tracker, model)
     for index in range(100):
-        result = tracker.update(fix("west"), 3100 + index, (index + 3,), model)
+        result = tracker.update(fix("west"), 3100 + index, {"a": 3100 + index}, model)
         assert result["kind"] == "transition"
         assert result["location"] is None
         assert result["lastLocation"] == "east"
-    assert tracker.update(fix("west"), 13100, (200,), model)["location"] == "west"
+    assert tracker.update(fix("west"), 13100, {"a": 13100}, model)["location"] == "west"
 
 
 def test_repeated_render_of_one_observation_does_not_confirm_location(model):
     tracker = TemporalTracker()
     for now in range(0, 10000, 1000):
-        assert tracker.update(fix("east"), now, (1,), model)["kind"] == "transition"
+        assert tracker.update(fix("east"), now, {"a": 1}, model)["kind"] == "transition"
 
 
 def test_loss_of_reception_preserves_only_last_known_location(model):
     tracker = TemporalTracker()
     establish(tracker, model)
     result = tracker.update(
-        {"kind": "unknown", "reason": "No fresh phone readings", "candidates": []}, 35000, (None,), model
+        {"kind": "unknown", "reason": "No fresh phone readings", "candidates": []}, 35000, {}, model
     )
     assert result["kind"] == "unknown"
     assert result["location"] is None
@@ -141,3 +141,35 @@ def test_drawing_coordinates_do_not_affect_fingerprints(model):
 def test_disconnected_rooms_are_not_treated_as_adjacent(model):
     assert shortest_path("east", "west", model["connections"]) == 2
     assert shortest_path("east", "unknown", model["connections"]) == float("inf")
+
+
+def test_packet_must_corroborate_the_candidate_after_dwell(model):
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    assert tracker.update(fix("west"), 3100, {"a": 3100}, model)["location"] is None
+    assert tracker.update(fix("west"), 3200, {"a": 3200}, model)["location"] is None
+    assert tracker.update(fix("west"), 13100, {"a": 3200}, model)["location"] is None
+    assert tracker.update(fix("west"), 14000, {"a": 13099}, model)["location"] is None
+    assert tracker.update(fix("west"), 15000, {"a": 15000}, model)["location"] == "west"
+
+
+def test_disconnected_room_still_needs_twenty_seconds_of_travel(model):
+    tracker = TemporalTracker()
+    model["connections"] = []
+    establish(tracker, model)
+    for now in (3100, 13100, 22999):
+        assert tracker.update(fix("west"), now, {"a": now}, model)["location"] is None
+    assert tracker.update(fix("west"), 23000, {"a": 23000}, model)["location"] == "west"
+
+
+def test_unconfigured_receiver_keys_do_not_dilute_loss(model):
+    model["samples"] = [sample("east", -80, -81, -82), sample("west", -65, -65, -65)]
+    current = {"a": -95, "b": -96, "c": -97}
+    estimator = FingerprintEstimator()
+    baseline = estimator.estimate(current, model, SIG)
+    assert baseline["kind"] == "unknown"
+    for index in range(35):
+        prototype = deepcopy(model["samples"][0])
+        prototype["signals"].update({f"other_{index}_{key}": None for key in range(13)})
+        model["samples"].append(prototype)
+    assert estimator.estimate(current, model, SIG) == baseline

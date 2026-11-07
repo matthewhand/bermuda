@@ -133,6 +133,7 @@ async def async_remove_config_entry_device(
 async def async_unload_entry(hass: HomeAssistant, entry: BermudaConfigEntry) -> bool:
     """Handle removal of an entry."""
     if unload_result := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        await entry.runtime_data.coordinator.room_tracking.async_close()
         _LOGGER.debug("Unloaded platforms.")
     return unload_result
 

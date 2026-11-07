@@ -518,16 +518,6 @@ class BermudaLearnedRoom(BermudaGlobalSensor):
             return result["kind"]
         return next((room["label"] for room in manager.model["rooms"] if room["id"] == location), None)
 
-    @property
-    def extra_state_attributes(self):
-        manager = self.coordinator.room_tracking
-        return {
-            "estimator": manager.result.get("estimator", (manager.model or {}).get("estimator", "fingerprint")),
-            "tracked_device": (manager.model or {}).get("config", {}).get("device", {}).get("id"),
-            "tracking_result": manager.result,
-            "unavailable_sources": manager.unavailable_sources,
-        }
-
 
 class BermudaTotalProxyCount(BermudaGlobalSensor):
     """Counts the total number of proxies we have access to."""
