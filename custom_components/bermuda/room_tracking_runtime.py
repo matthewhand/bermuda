@@ -118,18 +118,6 @@ def validate_room_model(value):
         )
     ):
         _reject("Invalid room connection")
-    groups = model.get("roomGroups", [])
-    if not isinstance(groups, list) or len(groups) > 20:
-        _reject("Too many room groups")
-    for group in groups:
-        if (
-            not isinstance(group, dict)
-            or not re.fullmatch(r"[a-z0-9_-]{1,70}", group.get("id", ""))
-            or not isinstance(group.get("rooms"), list)
-            or not 1 <= len(group["rooms"]) <= 50
-            or any(room not in ids for room in group["rooms"])
-        ):
-            _reject("Invalid room group")
     _validate_recordings(samples, ids)
     if model.get("estimator", "fingerprint") not in ESTIMATORS:
         _reject("Unsupported room estimator")
@@ -167,7 +155,14 @@ class RoomTrackingManager:
     def async_register_services(self):
         """Register model read/save services; no radio changes are made."""
 
-        async def get_model(_call):
+        async def require_admin(call):
+            if user_id := call.context.user_id:
+                user = await self.hass.auth.async_get_user(user_id)
+                if user is None or not user.is_admin:
+                    raise Unauthorized
+
+        async def get_model(call):
+            await require_admin(call)
             return {
                 "model": copy.deepcopy(self.model),
                 "result": self.result,
@@ -175,10 +170,7 @@ class RoomTrackingManager:
             }
 
         async def save_model(call):
-            if user_id := call.context.user_id:
-                user = await self.hass.auth.async_get_user(user_id)
-                if user is None or not user.is_admin:
-                    raise Unauthorized
+            await require_admin(call)
             try:
                 model = validate_room_model(call.data["model"])
             except (ValueError, TypeError, KeyError) as err:
@@ -193,6 +185,8 @@ class RoomTrackingManager:
                 model["revision"] = current + 1
                 await self.store.async_save(model)
                 self.model = model
+                self.tracker = TemporalTracker()
+                self.last_signature = None
                 self.estimator = ESTIMATORS[model.get("estimator", "fingerprint")]()
                 self.update()
                 self.coordinator.async_update_listeners()

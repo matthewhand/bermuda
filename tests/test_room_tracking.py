@@ -130,16 +130,6 @@ def test_loss_of_reception_preserves_only_last_known_location(model):
     assert result["lastLocation"] == "east"
 
 
-def test_open_plan_group_can_be_known_without_inventing_a_zone(model):
-    model["roomGroups"] = [{"id": "open", "label": "Open area", "rooms": ["east", "west"]}]
-    estimate = {"kind": "uncertain", "candidates": [{"roomId": "east"}, {"roomId": "west"}]}
-    tracker = TemporalTracker()
-    tracker.update(estimate, 0, (1,), model)
-    result = tracker.update(estimate, 3000, (2,), model)
-    assert result["location"] == "group:open"
-    assert result["members"] == ["east", "west"]
-
-
 def test_drawing_coordinates_do_not_affect_fingerprints(model):
     before = FingerprintEstimator().estimate({"a": -65, "b": -85, "c": None}, model, SIG)
     changed = deepcopy(model)

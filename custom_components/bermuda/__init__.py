@@ -44,7 +44,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: BermudaConfigEntry) -> b
     coordinator = BermudaDataUpdateCoordinator(hass, entry)
     entry.runtime_data = BermudaData(coordinator)
     await coordinator.room_tracking.async_load()
-    coordinator.room_tracking.async_register_services()
 
     async def on_failure():
         _LOGGER.debug("Coordinator last update failed, rasing ConfigEntryNotReady")
@@ -59,6 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BermudaConfigEntry) -> b
         await on_failure()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator.room_tracking.async_register_services()
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 

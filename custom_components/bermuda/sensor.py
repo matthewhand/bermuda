@@ -516,22 +516,13 @@ class BermudaLearnedRoom(BermudaGlobalSensor):
             return "disabled"
         if result["kind"] != "stable" or not location or not manager.model:
             return result["kind"]
-        if location.startswith("group:"):
-            return next(
-                (
-                    group.get("label", group["id"])
-                    for group in manager.model.get("roomGroups", [])
-                    if "group:" + group["id"] == location
-                ),
-                None,
-            )
         return next((room["label"] for room in manager.model["rooms"] if room["id"] == location), None)
 
     @property
     def extra_state_attributes(self):
         manager = self.coordinator.room_tracking
         return {
-            "estimator": "fingerprint",
+            "estimator": manager.result.get("estimator", (manager.model or {}).get("estimator", "fingerprint")),
             "tracked_device": (manager.model or {}).get("config", {}).get("device", {}).get("id"),
             "tracking_result": manager.result,
             "unavailable_sources": manager.unavailable_sources,

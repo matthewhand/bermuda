@@ -170,21 +170,8 @@ class TemporalTracker:
 
     def update(self, estimate: dict, now: float, evidence: tuple, model: dict) -> dict:
         """Update using monotonic milliseconds; never label the last room as current."""
-        groups = model.get("roomGroups", [])
         edges = model.get("connections", [])
-        candidate_ids = [candidate["roomId"] for candidate in estimate.get("candidates", [])]
         target = estimate.get("roomId") if estimate["kind"] == "match" else None
-        if target is None and estimate["kind"] == "uncertain" and len(candidate_ids) >= 2:
-            group = next((group for group in groups if set(candidate_ids) <= set(group["rooms"])), None)
-            if group:
-                target = "group:" + group["id"]
-
-        def members(location):
-            if not location:
-                return []
-            if location.startswith("group:"):
-                return next((group["rooms"] for group in groups if "group:" + group["id"] == location), [])
-            return [location]
 
         elapsed = math.inf if self.confirmed_at is None else now - self.confirmed_at
         previous = self.confirmed if elapsed <= 30000 else None
@@ -199,11 +186,7 @@ class TemporalTracker:
             self.count = 0
             nearby = base["candidates"]
             if previous and elapsed < 15000:
-                nearby = [
-                    candidate
-                    for candidate in nearby
-                    if any(shortest_path(room, candidate["roomId"], edges) <= 1 for room in members(previous))
-                ]
+                nearby = [candidate for candidate in nearby if shortest_path(previous, candidate["roomId"], edges) <= 1]
             kind = estimate["kind"] if estimate["kind"] in {"learning", "unknown"} else "uncertain"
             return {**base, "kind": kind, "location": None, "candidates": nearby}
         if target == previous:
@@ -215,8 +198,7 @@ class TemporalTracker:
                 **base,
                 "kind": "stable",
                 "location": target,
-                "members": members(target),
-                "reason": "Area known; zone uncertain" if target.startswith("group:") else estimate.get("confidence"),
+                "reason": estimate.get("confidence"),
             }
         if self.pending != target:
             self.pending = target
@@ -226,11 +208,7 @@ class TemporalTracker:
         if evidence != self.evidence:
             self.evidence = evidence
             self.count += 1
-        distance = (
-            min((shortest_path(a, b, edges) for a in members(previous) for b in members(target)), default=math.inf)
-            if previous
-            else 0
-        )
+        distance = shortest_path(previous, target, edges) if previous else 0
         dwell = (6000 if distance <= 1 else 10000) if previous else 3000
         travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0
         if self.count >= 2 and now - self.pending_since >= dwell and elapsed >= travel:
@@ -241,8 +219,7 @@ class TemporalTracker:
                 **base,
                 "kind": "stable",
                 "location": target,
-                "members": members(target),
-                "reason": "Area known; zone uncertain" if target.startswith("group:") else estimate.get("confidence"),
+                "reason": estimate.get("confidence"),
             }
         return {
             **base,

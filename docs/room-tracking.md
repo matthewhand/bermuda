@@ -1,6 +1,6 @@
 # Experimental learned-room tracking
 
-This optional estimator compares current RSSI patterns with labelled room recordings. It adds a separate **Learned room** sensor; existing Area sensors and distance calibration keep their existing behaviour. No additional scanning is started.
+This optional estimator compares current RSSI patterns with labelled room recordings. It adds a separate **Learned room** sensor and existing Area sensors and distance calibration keep their existing behaviour. No additional scanning is started.
 
 ## Estimator and movement model
 
@@ -8,13 +8,13 @@ The initial `fingerprint` estimator uses multiple prototypes per room, robust si
 
 The estimator interface and registry allow future modes without coupling signal comparison to movement rules. There is currently one implemented mode. Physical coordinates, metre dimensions and RSSI-to-distance conversion are not required.
 
-An independent temporal tracker requires distinct observations and elapsed dwell time. Room connections constrain transition timing. Unconnected rooms require longer confirmation; an old location is labelled last known rather than presented as a fresh fix. Optional room groups allow a coarse open-plan estimate when individual zones are indistinguishable. These timing rules are heuristics, not a trained motion probability model.
+An independent temporal tracker requires distinct observations and elapsed dwell time. Room connections constrain transition timing. Unconnected rooms require longer confirmation; an old location is labelled last known rather than presented as a fresh fix. These timing rules are heuristics, not a trained motion probability model.
 
 ## Model services
 
-`bermuda.get_room_model` returns the model, current tracking result and unavailable sources. `bermuda.save_room_model` accepts `model` and `expected_revision`; read the current revision before saving. The first model uses expected revision zero. A successful save increments the revision. Concurrent stale saves are rejected. Saves require an administrator user context, or an internal automation context.
+`bermuda.get_room_model` returns the model, current tracking result and unavailable sources. `bermuda.save_room_model` accepts `model` and `expected_revision`; read the current revision before saving. The first model uses expected revision zero. A successful save increments the revision. Concurrent stale saves are rejected. Both services require an administrator user context or an internal automation context.
 
-Models are stored through Home Assistant's Store separately from integration source files. There is no model and tracking remains disabled until one is saved with `enabled: true`. The initial implementation tracks one configured device per integration entry.
+Models are stored through Home Assistant's Store separately from integration source files. There is no model and tracking remains disabled until one is saved with `enabled: true`. The integration supports one config entry, and this estimator calibrates one configured device.
 
 The version-1 model contains:
 
@@ -23,7 +23,6 @@ The version-1 model contains:
 - `config.receivers`: one to sixteen objects with unique `key`, optional `roomId`, and optional numeric `weight` from 0.1 to 5.
 - `rooms`: objects with unique `id` and `label`. Drawing coordinates are optional and ignored by the estimator.
 - `connections`: pairs of connected room identifiers.
-- Optional `roomGroups`: objects with `id`, `label` and a list of `rooms`.
 - `receiverLayoutVersion`: increment when moving receivers so previous recordings cannot silently train the new arrangement.
 - `samples`: up to 120 labelled prototypes. Each has `roomId`, `signature`, and `signals` mapping receiver keys to either null or an object containing `median`, `mad` and `count`.
 
@@ -33,6 +32,6 @@ Null means no measured reception; it is not an invented weak RSSI. A prototype's
 
 ## Limits and verification
 
-This is room classification, not geometric triangulation or a continuous physical position. Similar signal patterns may remain uncertain regardless of the number of recordings. Timings and comparison thresholds need independent household evaluation. A successful replay of training recordings does not establish accuracy on new walks.
+The estimator returns discrete room labels using calibrated signal patterns. Similar signal patterns may remain uncertain regardless of the number of recordings. Timings and comparison thresholds need independent household evaluation. A successful replay of training recordings does not establish accuracy on new walks.
 
 Tests cover signal patterns, missing/offline receivers, multiple orientations, ambiguity, distinct-observation confirmation, elapsed-time transitions, expired observations, persistent model round trips, administrator permissions and concurrent revision checks. They do not measure real-world room accuracy or replace the full integration test suite.

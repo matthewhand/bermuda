@@ -92,7 +92,7 @@ def test_concurrent_saves_require_matching_revision(tmp_path):
     asyncio.run(scenario())
 
 
-def test_non_admin_cannot_save_model(tmp_path):
+def test_non_admin_cannot_read_or_save_model(tmp_path):
     async def scenario():
         hass = HomeAssistant(str(tmp_path))
         manager, _, _, _ = setup_manager(hass, [100])
@@ -102,8 +102,13 @@ def test_non_admin_cannot_save_model(tmp_path):
 
         hass.auth = SimpleNamespace(async_get_user=get_user)
         try:
+            context = Context(user_id="viewer")
             with pytest.raises(Unauthorized):
-                await save(hass, make_model(), context=Context(user_id="viewer"))
+                await hass.services.async_call(
+                    "bermuda", "get_room_model", {}, blocking=True, return_response=True, context=context
+                )
+            with pytest.raises(Unauthorized):
+                await save(hass, make_model(), context=context)
             assert manager.model is None
         finally:
             await hass.async_stop()
@@ -162,7 +167,6 @@ def test_invalid_save_preserves_existing_model(tmp_path):
         lambda m: m["config"].update(receivers=["bad"]),
         lambda m: m["config"]["receivers"].append(dict(m["config"]["receivers"][0])),
         lambda m: m.update(estimator="unimplemented"),
-        lambda m: m.update(roomGroups=[{"id": "bad", "rooms": ["missing"]}]),
     ],
 )
 def test_model_contract_rejects_invalid_input(mutation):
@@ -170,3 +174,32 @@ def test_model_contract_rejects_invalid_input(mutation):
     mutation(value)
     with pytest.raises((ValueError, TypeError)):
         validate_room_model(value)
+
+
+def test_failed_setup_does_not_register_room_model_services(tmp_path, monkeypatch):
+    from homeassistant.exceptions import ConfigEntryNotReady
+
+    from custom_components import bermuda
+
+    async def scenario():
+        hass = HomeAssistant(str(tmp_path))
+        entry = SimpleNamespace()
+        calls = []
+
+        async def load():
+            calls.append("load")
+
+        async def refresh():
+            calls.append("refresh")
+
+        manager = SimpleNamespace(async_load=load, async_register_services=lambda: calls.append("register"))
+        coordinator = SimpleNamespace(room_tracking=manager, async_refresh=refresh, last_update_success=False)
+        monkeypatch.setattr(bermuda, "BermudaDataUpdateCoordinator", lambda *_: coordinator)
+        try:
+            with pytest.raises(ConfigEntryNotReady):
+                await bermuda.async_setup_entry(hass, entry)
+            assert calls == ["load", "refresh"]
+        finally:
+            await hass.async_stop()
+
+    asyncio.run(scenario())
