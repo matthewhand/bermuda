@@ -172,6 +172,24 @@ def test_wireless_hint_resolves_a_close_single_receiver_tie(model):
     assert tracker.update(estimate, 5000, (4,), model, wireless_charging=True)["kind"] == "uncertain"
 
 
+def test_wireless_hint_still_supports_the_ble_leader_as_its_lead_grows(model):
+    model["hints"] = {"wirelessRooms": ["east"], "noWirelessRooms": ["west"]}
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [
+            {"roomId": "east", "score": 0.5, "common": 1},
+            {"roomId": "west", "score": 1.6, "common": 2},
+        ],
+    }
+    tracker = TemporalTracker()
+    assert tracker.update(estimate, 0, (1,), model, wireless_charging=True)["proposed"] == "east"
+    assert tracker.update(estimate, 3000, (2,), model, wireless_charging=True)["location"] == "east"
+    assert tracker.update(estimate, 4000, (3,), model)["kind"] == "uncertain"
+    estimate["candidates"][0]["score"] = 2.6
+    estimate["candidates"].reverse()
+    assert tracker.update(estimate, 5000, (4,), model, wireless_charging=True)["kind"] == "uncertain"
+
+
 def test_travel_hint_favours_previous_room_without_renewing_it(model):
     model["hints"] = {"recentRoom": True}
     estimate = {

@@ -163,7 +163,6 @@ def resolve_tie(estimate, settings, previous_rooms, elapsed, connections, wirele
     if (
         estimate["kind"] != "uncertain"
         or len(candidates) != 2
-        or abs(candidates[0].get("score", 0) - candidates[1].get("score", 0)) >= 0.75
         or any(candidate.get("common", 0) < 1 for candidate in candidates)
     ):
         return estimate
@@ -172,6 +171,11 @@ def resolve_tie(estimate, settings, previous_rooms, elapsed, connections, wirele
     hints = []
     charging_rooms = set(settings.get("wirelessRooms", []))
     no_charging = set(settings.get("noWirelessRooms", []))
+    charging_supports_leader = (
+        wireless_charging and candidates[0]["roomId"] in charging_rooms and candidates[1]["roomId"] in no_charging
+    )
+    if not charging_supports_leader and abs(candidates[0].get("score", 0) - candidates[1].get("score", 0)) >= 0.75:
+        return estimate
     ids = {candidate["roomId"] for candidate in options}
     if wireless_charging and ids & charging_rooms and ids & no_charging:
         options = [candidate for candidate in options if candidate["roomId"] not in no_charging]

@@ -145,7 +145,7 @@ class WalkTestRecorder:
                     "frames": [],
                     "markers": [],
                     "annotations": [],
-                    "engine": "fingerprint-v3",
+                    "engine": "fingerprint-v4",
                 }
                 tracker = self.manager.tracker
                 walk["initialTracker"] = {
