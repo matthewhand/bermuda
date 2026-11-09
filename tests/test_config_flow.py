@@ -275,6 +275,25 @@ async def test_globalopts_updates_options(hass: HomeAssistant, setup_bermuda_ent
         assert setup_bermuda_entry.options[key] == value
 
 
+async def test_experimental_room_tracking_options(hass: HomeAssistant, setup_bermuda_entry: MockConfigEntry) -> None:
+    """Offer separate opt-in, decay, and travel controls in the options UI."""
+    result = await hass.config_entries.options.async_init(setup_bermuda_entry.entry_id)
+    assert "room_tracking" in result["menu_options"]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "room_tracking"}
+    )
+    assert result["step_id"] == "room_tracking"
+    assert result["data_schema"]({}) == {
+        "experimental_room_tracking": False,
+        "room_decay_intervals": 4.0,
+        "room_travel_seconds": 4.0,
+    }
+    values = {"experimental_room_tracking": True, "room_decay_intervals": 5, "room_travel_seconds": 2.5}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input=values)
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert all(setup_bermuda_entry.options[key] == value for key, value in values.items())
+
+
 async def test_calibration1_shows_form_initially(hass: HomeAssistant, setup_bermuda_entry: MockConfigEntry) -> None:
     """Test calibration1_global shows form on first visit."""
     from custom_components.bermuda.const import CONF_SAVE_AND_CLOSE

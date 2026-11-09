@@ -636,7 +636,7 @@ class BermudaLearnedRoom(BermudaGlobalSensor):
     def native_value(self):
         manager = self.coordinator.room_tracking
         result = manager.result
-        location = result.get("location") or result.get("heldLocation")
+        location = result.get("location") or result.get("heldLocation") or result.get("provisionalLocation")
         if result["kind"] == "disabled":
             return "disabled"
         if not location or not manager.model:
@@ -647,7 +647,10 @@ class BermudaLearnedRoom(BermudaGlobalSensor):
     def extra_state_attributes(self):
         """Indicate when the displayed room is a recent fix being held."""
         result = self.coordinator.room_tracking.result
-        return {"held": bool(result.get("heldLocation"))}
+        attributes = {"held": bool(result.get("heldLocation"))}
+        if result.get("trackingMode") == "adaptive_hybrid":
+            attributes["provisional"] = bool(result.get("provisionalLocation"))
+        return attributes
 
 
 class BermudaTotalProxyCount(BermudaGlobalSensor):

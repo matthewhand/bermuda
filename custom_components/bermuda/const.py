@@ -180,6 +180,11 @@ DEFAULT_RECORDER_FRIENDLY: Final = True  # Enabled by default; reduces DB writes
 
 # UKF (Unscented Kalman Filter) Area Selection - experimental multi-scanner fusion
 CONF_USE_UKF_AREA_SELECTION = "use_ukf_area_selection"
+CONF_EXPERIMENTAL_ROOM_TRACKING = "experimental_room_tracking"
+CONF_ROOM_DECAY_INTERVALS = "room_decay_intervals"
+CONF_ROOM_TRAVEL_SECONDS = "room_travel_seconds"
+DEFAULT_ROOM_DECAY_INTERVALS = 4.0
+DEFAULT_ROOM_TRAVEL_SECONDS = 4.0
 DEFAULT_USE_UKF_AREA_SELECTION: Final = True  # Enabled by default; uses fingerprints when available
 UKF_MIN_MATCH_SCORE: Final = 0.3  # Minimum match score (0-1) to consider a fingerprint match
 # FIX: FEHLER 3 - Lower threshold for RETAINING the current area (prevents aggressive fallback to min-distance)

@@ -21,8 +21,16 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN
+from .const import (
+    CONF_EXPERIMENTAL_ROOM_TRACKING,
+    CONF_ROOM_DECAY_INTERVALS,
+    CONF_ROOM_TRAVEL_SECONDS,
+    DEFAULT_ROOM_DECAY_INTERVALS,
+    DEFAULT_ROOM_TRAVEL_SECONDS,
+    DOMAIN,
+)
 from .room_tracking import ESTIMATORS, TemporalTracker
+from .room_tracking_hybrid import AdaptiveRoomTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -161,6 +169,24 @@ def validate_room_model(value):
     return model
 
 
+def _native_room(device, rooms):
+    """Map a native UKF decision to one unambiguous room in the model."""
+    if (
+        device is None
+        or not device.area_id
+        or device.area_locked_id is not None
+        or device.area_state_retained
+        or device.is_scanner
+        or not (device.create_sensor or device.create_tracker_done)
+    ):
+        return None
+    tests = device.area_tests
+    if tests is None or tests.decision_path != "UKF" or tests.ukf_retention_mode:
+        return None
+    matches = [room["id"] for room in rooms if (room.get("areaId") or room["id"]) == device.area_id]
+    return matches[0] if len(matches) == 1 else None
+
+
 class RoomTrackingManager:
     """Keep learning optional, persistent and independent of existing room selection."""
 
@@ -174,6 +200,7 @@ class RoomTrackingManager:
         self.tracker = TemporalTracker()
         self.estimator = ESTIMATORS["fingerprint"]()
         self.last_signature = None
+        self.hybrid_settings = None
         self.unavailable_sources = []
         self._save_lock = asyncio.Lock()
         self._closed = False
@@ -317,13 +344,30 @@ class RoomTrackingManager:
         transmitter = self.hass.states.get(device_config.get("transmitterEntity", ""))
         power = transmitter.attributes.get("Transmitting power", "unknown") if transmitter else "unknown"
         signature = f"{device_config['id']}|{power}{_receiver_signature(vector, model.get('receiverLayoutVersion', 0))}"
-        if signature != self.last_signature:
-            self.tracker = TemporalTracker()
+        options = getattr(self.entry, "options", {})
+        hybrid = None
+        if options.get(CONF_EXPERIMENTAL_ROOM_TRACKING) is True:
+            hybrid = (
+                options.get(CONF_ROOM_DECAY_INTERVALS, DEFAULT_ROOM_DECAY_INTERVALS),
+                options.get(CONF_ROOM_TRAVEL_SECONDS, DEFAULT_ROOM_TRAVEL_SECONDS),
+            )
+        estimator_name = model.get("estimator", "fingerprint")
+        if signature != self.last_signature or hybrid != self.hybrid_settings:
+            self.tracker = AdaptiveRoomTracker(*hybrid) if hybrid else TemporalTracker()
+            self.estimator = ESTIMATORS[estimator_name](include_all=hybrid is not None)
             self.last_signature = signature
+            self.hybrid_settings = hybrid
         estimate = self.estimator.estimate(vector, model, signature, offline)
+        if isinstance(self.tracker, AdaptiveRoomTracker):
+            result = self.tracker.update(
+                estimate, now * 1000, evidence, model, eligible, native_room=_native_room(device, model["rooms"])
+            )
+        else:
+            result = self.tracker.update(estimate, now * 1000, evidence, model, eligible)
         self.result = {
-            **self.tracker.update(estimate, now * 1000, evidence, model, eligible),
-            "estimator": model.get("estimator", "fingerprint"),
+            **result,
+            "estimator": estimator_name,
+            **({"trackingMode": "adaptive_hybrid"} if hybrid else {}),
             "weights": estimate.get("weights", {}),
             "observedReceivers": sum(value is not None for value in vector.values()),
             "unavailableSources": self.unavailable_sources,

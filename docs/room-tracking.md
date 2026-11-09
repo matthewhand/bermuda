@@ -12,6 +12,16 @@ The tracker holds the displayed room for up to eight seconds after its last conf
 
 Fresh packets can sustain evidence for a connected room through brief interruptions in the signal ranking. A move relying on two matching receivers requires both readings to be recent. A distant fix requires additional evidence after the previous room has dropped from view. Confirmed results include a `placement` field so clients can distinguish an initial fix, a move, a reacquisition after a gap, or a continued fix. These timing rules are heuristics, not a trained motion probability model.
 
+### Experimental adaptive hybrid
+
+Under **Bermuda → Configure → Experimental room tracking**, enable **Use adaptive hybrid** for an enabled room model. This switch is off by default. The native Area sensor keeps its own selection.
+
+- **Decay half-life in expected packet intervals** defaults to 4. The tracker estimates the interval from recent distinct BLE receipts and allows one interval of grace. Freshness then halves after the configured number of intervals. A held placement expires after three half-lives or 45 seconds, whichever comes first.
+- **Minimum adjacent-room travel time** defaults to 4 seconds. It controls movement between connected rooms and still requires repeated packet evidence. It does not extend the old room's hold.
+- A trained native UKF area can supply a provisional startup location. A model room uses its optional Home Assistant `areaId` link, or its own identifier when that matches the Area ID. Only a unique match is used. Without a native match, the learned tracker acquires a room from the recorded fingerprints.
+
+The model service can return `provisionalLocation` or `heldLocation` and a `placementFreshness` value for fading a marker. Freshness describes elapsed time, rather than the probability of a correct room. The Learned room sensor flags `provisional` and `held` placements. Consumers that need a confirmed room can use the `location` field.
+
 ## Model services
 
 `bermuda.get_room_model` returns the model, current tracking result and unavailable sources. `bermuda.save_room_model` accepts `model` and `expected_revision`; read the current revision before saving. The first model uses expected revision zero. A successful save increments the revision. Concurrent stale saves are rejected. Both services require an administrator user context or an internal automation context.

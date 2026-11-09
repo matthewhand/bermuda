@@ -13,6 +13,9 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     DeviceSelector,
     DeviceSelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     ObjectSelector,
     SelectOptionDict,
     SelectSelector,
@@ -28,11 +31,14 @@ from .const import (
     CONF_ATTENUATION,
     CONF_DEVICES,
     CONF_DEVTRACK_TIMEOUT,
+    CONF_EXPERIMENTAL_ROOM_TRACKING,
     CONF_MAX_RADIUS,
     CONF_MAX_VELOCITY,
     CONF_RECORDER_FRIENDLY,
     CONF_REF_POWER,
     CONF_REFERENCE_TRACKERS,
+    CONF_ROOM_DECAY_INTERVALS,
+    CONF_ROOM_TRAVEL_SECONDS,
     CONF_RSSI_OFFSETS,
     CONF_SAVE_AND_CLOSE,
     CONF_SCANNER_INFO,
@@ -47,6 +53,8 @@ from .const import (
     DEFAULT_MAX_VELOCITY,
     DEFAULT_RECORDER_FRIENDLY,
     DEFAULT_REF_POWER,
+    DEFAULT_ROOM_DECAY_INTERVALS,
+    DEFAULT_ROOM_TRAVEL_SECONDS,
     DEFAULT_SMOOTHING_SAMPLES,
     DEFAULT_UPDATE_INTERVAL,
     DEFAULT_USE_UKF_AREA_SELECTION,
@@ -210,6 +218,7 @@ class BermudaOptionsFlowHandler(OptionsFlowWithConfigEntry):
                 "selectdevices": "Select Devices",
                 "calibration1_global": "Calibration 1: Global",
                 "calibration2_scanners": "Calibration 2: Scanner RSSI Offsets",
+                "room_tracking": "Experimental room tracking",
             },
             description_placeholders=messages,
         )
@@ -260,6 +269,29 @@ class BermudaOptionsFlowHandler(OptionsFlowWithConfigEntry):
         }
 
         return self.async_show_form(step_id="globalopts", data_schema=vol.Schema(data_schema))
+
+    async def async_step_room_tracking(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Set the opt-in learned-room hybrid and its independent timing controls."""
+        if user_input is not None:
+            self.options.update(user_input)
+            return await self._update_options()
+
+        schema = {
+            vol.Required(
+                CONF_EXPERIMENTAL_ROOM_TRACKING, default=self.options.get(CONF_EXPERIMENTAL_ROOM_TRACKING, False)
+            ): bool,
+            vol.Required(
+                CONF_ROOM_DECAY_INTERVALS,
+                default=self.options.get(CONF_ROOM_DECAY_INTERVALS, DEFAULT_ROOM_DECAY_INTERVALS),
+            ): NumberSelector(NumberSelectorConfig(min=1, max=8, step=0.5, mode=NumberSelectorMode.BOX)),
+            vol.Required(
+                CONF_ROOM_TRAVEL_SECONDS,
+                default=self.options.get(CONF_ROOM_TRAVEL_SECONDS, DEFAULT_ROOM_TRAVEL_SECONDS),
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=10, step=0.5, mode=NumberSelectorMode.BOX, unit_of_measurement="s")
+            ),
+        }
+        return self.async_show_form(step_id="room_tracking", data_schema=vol.Schema(schema))
 
     async def async_step_selectdevices(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""

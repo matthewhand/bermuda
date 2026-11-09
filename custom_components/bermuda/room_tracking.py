@@ -36,6 +36,9 @@ def _strength(value: float) -> float:
 class FingerprintEstimator:
     """Compare complete weighted signal patterns against multiple labelled prototypes."""
 
+    def __init__(self, *, include_all: bool = False) -> None:
+        self.include_all = include_all
+
     def estimate(self, current: dict, model: dict, signature: str, unavailable: set[str] | None = None) -> dict:
         rooms = {room["id"] for room in model["rooms"]}
         samples = [
@@ -111,6 +114,7 @@ class FingerprintEstimator:
         )
         if not candidates:
             return {"kind": "unknown", "reason": "No comparable samples", "candidates": []}
+        all_rooms = {"allRooms": candidates} if self.include_all else {}
         if any(candidate["contradictions"] == 0 for candidate in candidates):
             candidates = [candidate for candidate in candidates if candidate["contradictions"] == 0]
         first = candidates[0]
@@ -120,8 +124,9 @@ class FingerprintEstimator:
                 "reason": "No similar recorded signal pattern",
                 "candidates": [],
                 "weights": weights,
+                **all_rooms,
             }
-        result = {"candidates": candidates[:2], "weights": weights}
+        result = {"candidates": candidates[:2], "weights": weights, **all_rooms}
         if first["common"] < 2 or (len(candidates) > 1 and candidates[1]["score"] - first["score"] < 0.75):
             return {
                 **result,
@@ -170,8 +175,8 @@ class RoomVote(NamedTuple):
 class TemporalTracker:
     """Confirm rooms from fresh receiver observations and retain short gaps."""
 
-    HOLD_MS = 8000
-    CONTEXT_MS = 30000
+    HOLD_MS: float = 8000
+    CONTEXT_MS: float = 30000
     VOTE_WINDOW_MS = 12000
     VOTE_SPACING_MS = 800
     PACKET_MAX_AGE_MS = 4000
@@ -179,7 +184,8 @@ class TemporalTracker:
     ADJACENT_DWELL_MS = 1700
     MIN_TRAVEL_MS = 4000
 
-    def __init__(self) -> None:
+    def __init__(self, *, adjacent_travel_ms: float | None = None) -> None:
+        self.adjacent_travel_ms = self.MIN_TRAVEL_MS if adjacent_travel_ms is None else adjacent_travel_ms
         self.confirmed = None
         self.confirmed_at = None
         self.receiver_stamps: dict[str, float] = {}
@@ -334,7 +340,7 @@ class TemporalTracker:
                 len(votes) >= 3
                 and packet - votes[0][0] >= self.ADJACENT_DWELL_MS
                 and any(led for _, led in votes)
-                and packet - self.confirmed_at >= self.MIN_TRAVEL_MS
+                and packet - self.confirmed_at >= self.adjacent_travel_ms
             ):
                 return room, packet
         return None
@@ -381,7 +387,10 @@ class TemporalTracker:
     def _can_confirm(self, room, overlap, distance, previous, *, packet, now):
         if room == previous and self.votes[-1].strong:
             return True
-        travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0
+        if distance <= 1:
+            travel = self.adjacent_travel_ms
+        else:
+            travel = distance * 3000 if math.isfinite(distance) else 20000
         supporting = [vote for vote in self.votes if vote.room == room]
         span = packet - supporting[0].stamp
         if previous and room != previous and max(packet - self.confirmed_at, span) < travel:

@@ -9,6 +9,12 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
 
 from custom_components.bermuda.bermuda_device import BermudaDevice
+from custom_components.bermuda.const import (
+    CONF_EXPERIMENTAL_ROOM_TRACKING,
+    CONF_ROOM_DECAY_INTERVALS,
+    CONF_ROOM_TRAVEL_SECONDS,
+)
+from custom_components.bermuda.room_tracking_hybrid import AdaptiveRoomTracker
 from custom_components.bermuda.room_tracking_runtime import RoomTrackingManager, validate_room_model
 from tests.test_room_tracking import make_model, sample
 
@@ -47,6 +53,51 @@ async def save(hass, model, revision=0, context=None):
         return_response=True,
         context=context,
     )
+
+
+def test_hybrid_is_opt_in_and_maps_native_area_without_changing_it(tmp_path, monkeypatch):
+    async def scenario():
+        clock = [100.0]
+        monkeypatch.setattr("custom_components.bermuda.room_tracking_runtime.monotonic_time_coarse", lambda: clock[0])
+        hass = HomeAssistant(str(tmp_path))
+        manager, phone, _, _ = setup_manager(hass, clock)
+        phone.area_id = "home_assistant_east"
+        phone.area_locked_id = None
+        phone.area_state_retained = False
+        phone.area_tests = SimpleNamespace(decision_path="UKF", ukf_retention_mode=False)
+        phone._is_scanner = False
+        phone.create_sensor = True
+        try:
+            model = make_model()
+            model["rooms"][0]["areaId"] = phone.area_id
+            await save(hass, model)
+            assert "provisionalLocation" not in manager.result
+            manager.entry.options = {
+                CONF_EXPERIMENTAL_ROOM_TRACKING: True,
+                CONF_ROOM_DECAY_INTERVALS: 3,
+                CONF_ROOM_TRAVEL_SECONDS: 2.5,
+            }
+            manager.update()
+            assert isinstance(manager.tracker, AdaptiveRoomTracker)
+            assert manager.tracker.decay_intervals == 3
+            assert manager.tracker.adjacent_travel_ms == 2500
+            assert manager.result["provisionalLocation"] == "east"
+            assert manager.result["location"] is None
+            assert phone.area_id == "home_assistant_east"
+
+            manager.entry.options[CONF_ROOM_DECAY_INTERVALS] = 5
+            phone.area_tests.ukf_retention_mode = True
+            manager.update()
+            assert manager.tracker.decay_intervals == 5
+            assert "provisionalLocation" not in manager.result
+            manager.entry.options = {}
+            manager.update()
+            assert not isinstance(manager.tracker, AdaptiveRoomTracker)
+            assert "trackingMode" not in manager.result
+        finally:
+            await hass.async_stop()
+
+    asyncio.run(scenario())
 
 
 def test_store_roundtrip_and_service_cleanup(tmp_path):

@@ -54,6 +54,20 @@
           "recorder_friendly": "When enabled (default), distance and RSSI sensors will not generate long-term statistics and per-scanner attributes are excluded from the recorder database. This dramatically reduces database size. Disable this for full history graphs and long-term statistics (useful for calibration and debugging)."
         }
       },
+      "room_tracking": {
+        "title": "Experimental room tracking",
+        "description": "Applies to the Learned room sensor when you have an enabled room model. Bermuda's Area sensor keeps its own room selection.",
+        "data": {
+          "experimental_room_tracking": "Use adaptive hybrid (experimental)",
+          "room_decay_intervals": "Decay half-life in expected packet intervals",
+          "room_travel_seconds": "Minimum adjacent-room travel time"
+        },
+        "data_description": {
+          "experimental_room_tracking": "Use nearby room evidence first and let the last placement fade during brief signal gaps. A trained native room estimate can provide a tentative starting room.",
+          "room_decay_intervals": "A larger value keeps the previous room visible for longer when readings pause. Fresh evidence for another room can still move the marker.",
+          "room_travel_seconds": "Minimum time for a move between directly connected rooms. A move still requires repeated evidence."
+        }
+      },
       "selectdevices": {
         "title": "Select Devices",
         "description": "Choose which devices you wish to track. If no devices appear below, then Bermuda is not seeing any data coming from Bluetooth scanners. Ensure you have an esphome ble_proxy device, Shelly devices with bluetooth proxy configured or a local bluetooth adaptor.\n\nDevices marked with **[Auto: ...]** are automatically tracked via their respective integrations (Private BLE Device or Google Find My). These cannot be deselected here - manage them through their source integration.",

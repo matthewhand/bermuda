@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 
 from custom_components.bermuda.room_tracking import FingerprintEstimator, TemporalTracker, shortest_path
+from custom_components.bermuda.room_tracking_hybrid import AdaptiveRoomTracker
 
 SIG = "beacon|high|a,b,c|layout:1"
 
@@ -102,6 +103,50 @@ def fix(room):
 def establish(tracker, model):
     assert tracker.update(fix("east"), 0, {"a": 0}, model)["kind"] == "transition"
     assert tracker.update(fix("east"), 3000, {"a": 3000, "b": 2800}, model)["location"] == "east"
+
+
+def test_hybrid_startup_is_provisional_and_cached_packets_do_not_refresh_it(model):
+    tracker = AdaptiveRoomTracker(decay_intervals=2, travel_seconds=4)
+    unknown = {"kind": "unknown", "candidates": []}
+    result = tracker.update(unknown, 0, {"a": 0}, model, native_room="east")
+    assert result["provisionalLocation"] == "east"
+    assert result["location"] is None
+    assert result["placementFreshness"] == 1
+    result = tracker.update(unknown, 12000, {"a": 0}, model, native_room="west")
+    assert result["provisionalLocation"] == "east"
+    assert result["placementFreshness"] == 0.5
+    assert "provisionalLocation" not in tracker.update(unknown, 3_600_000, {"a": 0}, model, native_room="east")
+
+
+def test_hybrid_decay_tracks_observed_packet_cadence(model):
+    tracker = AdaptiveRoomTracker(decay_intervals=2, travel_seconds=4)
+    unknown = {"kind": "unknown", "candidates": []}
+    for stamp in (0, 2000, 4000, 6000, 8000):
+        tracker.update(unknown, stamp, {"a": stamp}, model, native_room="east")
+    assert tracker.update(unknown, 14000, {"a": 8000}, model)["placementFreshness"] == 0.5
+    assert "provisionalLocation" not in tracker.update(unknown, 23000, {}, model)
+
+
+@pytest.mark.parametrize(("travel_seconds", "expected"), [(2.5, "corridor"), (4, None)])
+def test_hybrid_adjacent_travel_setting_is_independent_of_decay(model, travel_seconds, expected):
+    tracker = AdaptiveRoomTracker(decay_intervals=4, travel_seconds=travel_seconds)
+    establish(tracker, model)
+    adjacent = fix("corridor")
+    adjacent["candidates"][0]["quality"] = 3
+    for stamp in (3500, 4500, 5500):
+        result = tracker.update(adjacent, stamp, {"a": stamp, "b": stamp}, model)
+    assert result["location"] == expected
+
+
+def test_hybrid_considers_a_qualified_neighbor_outside_the_global_top_two(model):
+    tracker = AdaptiveRoomTracker(decay_intervals=4, travel_seconds=4)
+    establish(tracker, model)
+    distant = fix("west")
+    nearby = {**fix("corridor")["candidates"][0], "score": 1.5, "quality": 2}
+    estimate = {**distant, "allRooms": [*distant["candidates"], nearby]}
+    result = tracker.update(estimate, 4000, {"a": 4000, "b": 4000}, model)
+    assert result["proposed"] == "corridor"
+    assert result["location"] is None
 
 
 def test_far_room_cannot_teleport_after_burst_of_observations(model):
