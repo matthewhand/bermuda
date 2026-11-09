@@ -22,3 +22,25 @@ reset_room_auto_learning:
       selector:
         area:
           multiple: true
+
+get_room_model:
+  name: Get room model
+  description: Read the optional calibration model and current learned-room estimate.
+save_room_model:
+  name: Save room model
+  description: Validate and save the optional calibration model.
+  fields:
+    expected_revision:
+      name: Expected revision
+      description: The last read revision. Use zero for a new model.
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    model:
+      name: Room model
+      description: Versioned room layout, receiver configuration and labelled recordings.
+      required: true
+      selector:
+        object:

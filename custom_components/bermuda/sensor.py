@@ -158,6 +158,7 @@ async def async_setup_entry(
             BermudaActiveProxyCount(coordinator, entry),
             BermudaTotalDeviceCount(coordinator, entry),
             BermudaVisibleDeviceCount(coordinator, entry),
+            BermudaLearnedRoom(coordinator, entry),
         )
     )
 
@@ -614,6 +615,39 @@ class BermudaGlobalSensor(BermudaGlobalEntity, SensorEntity):
     def device_class(self) -> str:  # type: ignore[override]
         """Return de device class of the sensor."""
         return "bermuda__custom_device_class"
+
+
+class BermudaLearnedRoom(BermudaGlobalSensor):
+    """Expose the experimental estimate separately from nearest-scanner Area."""
+
+    @property
+    def unique_id(self):
+        return f"BERMUDA_LEARNED_ROOM_{self.config_entry.entry_id}"
+
+    @property
+    def name(self):
+        return "Learned room"
+
+    @property
+    def device_class(self):
+        return None
+
+    @property
+    def native_value(self):
+        manager = self.coordinator.room_tracking
+        result = manager.result
+        location = result.get("location") or result.get("heldLocation")
+        if result["kind"] == "disabled":
+            return "disabled"
+        if not location or not manager.model:
+            return result["kind"]
+        return next((room["label"] for room in manager.model["rooms"] if room["id"] == location), None)
+
+    @property
+    def extra_state_attributes(self):
+        """Indicate when the displayed room is a recent fix being held."""
+        result = self.coordinator.room_tracking.result
+        return {"held": bool(result.get("heldLocation"))}
 
 
 class BermudaTotalProxyCount(BermudaGlobalSensor):

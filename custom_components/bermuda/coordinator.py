@@ -95,6 +95,7 @@ from .correlation import AreaProfile, CorrelationStore, RoomProfile
 from .fmdn import FmdnIntegration
 from .local_ibeacon import LocalIBeaconCapture
 from .metadevice_manager import MetadeviceManager
+from .room_tracking_runtime import RoomTrackingManager
 from .scanner_calibration import ScannerCalibrationManager, update_scanner_calibration
 from .services import BermudaServiceHandler
 from .util import is_mac_address, normalize_address, normalize_mac
@@ -298,6 +299,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
                     self.options[key] = val
 
         self.devices: dict[str, BermudaDevice] = {}
+        self.room_tracking = RoomTrackingManager(hass, entry, self)
         register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
         self.local_ibeacon = LocalIBeaconCapture(
             (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
@@ -1619,6 +1621,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
             # Aggregate area data from sources into metadevices
             # This must run AFTER area selection so sources have area data populated
             self.aggregate_source_data_to_metadevices()
+            self.room_tracking.update()
 
             # We might need to freshen deliberately on first start if no new scanners
             # were discovered in the first scan update. This is likely if nothing has changed
