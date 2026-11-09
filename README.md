@@ -1,12 +1,12 @@
 ![Bermuda Logo](img/logo@2x.png)
 
-# Bermuda Plus development
+# Bermuda development fork
 
 This development branch builds on the actively maintained [jleinenbach Bermuda fork](https://github.com/jleinenbach/bermuda), including its room training and Google Find My support. Thanks to Jens Leinenbach and the fork's contributors for maintaining it, and to Ashley Gittins and the original Bermuda contributors. The Git history and [MIT license](LICENSE) carry forward.
 
 We use this branch to try improvements in our own Home Assistant setup. Our initial baseline is room tracking with three receivers in a house with internal brick walls. We use saved, labelled walks to check room order, time spent unplaced and wrong-room decisions. Extra receivers, sensor hints and measured geometry are optional.
 
-Experiments are opt-in. This fork can continue to carry them while we offer narrowly scoped changes to jleinenbach for review. The first candidate is the local USB iBeacon freshness fix. Room-estimation experiments and the simplified layout UI are separate work.
+Experiments are opt-in. We keep the [local USB iBeacon fix](https://github.com/matthewhand/bermuda/pull/5) and the [learned-room experiment](https://github.com/matthewhand/bermuda/pull/6) separate for review so they can be considered independently. The simplified layout UI is separate work.
 
 Report issues with this development branch in [our fork](https://github.com/matthewhand/bermuda/issues). The guide below describes the maintained base and links to its releases.
 
