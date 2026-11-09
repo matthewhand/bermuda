@@ -4,7 +4,7 @@
 
 This development branch builds on the actively maintained [jleinenbach Bermuda fork](https://github.com/jleinenbach/bermuda), including its room training and Google Find My support. Thanks to Jens Leinenbach and the fork's contributors for maintaining it, and to Ashley Gittins and the original Bermuda contributors. The Git history and [MIT license](LICENSE) carry forward.
 
-[Milestones and progress](#milestones-and-progress) · [Presence overview](#presence-overview) · [Floor-plan editor](#floor-plan-editor)
+[Milestones and progress](#milestones-and-progress) · [Tracking through BLE gaps](#tracking-through-ble-gaps) · [Presence overview](#presence-overview) · [Floor-plan editor](#floor-plan-editor)
 
 ## Milestones and progress
 
@@ -13,13 +13,28 @@ Our baseline is room tracking with three BLE receivers in a single-storey house 
 | Goal | Progress | Next check |
 | --- | --- | --- |
 | Keep USB iBeacon readings fresh at steady signal strength | The [USB fix](https://github.com/matthewhand/bermuda/pull/5) passed 174 focused tests on Home Assistant Core 2026.11.0. Core's Bluetooth callback also delivered 60 injected equal-RSSI packets, and the fix rejected a packet without raw proof. | Compare stock and patched builds on the same physical USB scanner with the transmitter stationary. |
-| Track rooms through brief signal gaps | The [opt-in room tracker](https://github.com/matthewhand/bermuda/pull/6) and USB fix passed 208 focused tests together. The tracker confirmed three rooms in order on one saved walk with zero off-route confirmations. It left all 13 held-out sessions unplaced. | Replay the same recordings against the fork's native room tracker and compare wrong-room decisions, time unplaced and transition delay. |
+| Track rooms through brief signal gaps | The [opt-in room tracker](https://github.com/matthewhand/bermuda/pull/6) and USB fix passed 208 focused tests together. A separate [offline hybrid prototype](#tracking-through-ble-gaps) kept a room visible throughout the saved walk and followed the route in order. | Improve startup in an unknown room and validate the hybrid on independently labelled walks before integration. |
 | Reuse calibration with the native fingerprint model | An in-memory import of saved observations produced learned receiver pairs for 9 of 10 rooms. In the remaining room, only one receiver heard the beacon. | Check whether the native tracker can retain a previously confirmed room with one receiver and how it recovers when coverage improves. |
 | Offer a simple floor plan, calibration and replay UI | The editor, recording controls and replay tools exist in the separate Presence project. | Connect them to this fork and verify the workflow with saved recordings. |
 | Use optional location hints | Presence has charging, device activity and directional presence hints. Door-contact support is staged. | Replay each hint independently and verify live watch and door inputs before enabling them. |
 | Estimate continuous map positions | The current experiment produces room labels. | Evaluate continuous coordinates separately once room tracking is reliable on the three-receiver baseline. |
 
 **Next live milestone.** On Core 2026.11.0, compare independently observed USB packet timestamps with Bermuda's reading age in stock and patched runs. Use the same stationary transmitter and receiver setup in both runs, then restore the original installation. This is the validation step before considering a contribution of the USB fix. We keep the USB fix and room-tracking experiment separate for review.
+
+## Tracking through BLE gaps
+
+Internal brick walls make a useful test case because different receivers may hear the same beacon at different times. Body shielding and uneven receiver placement can produce similar gaps. When several readings are missing or old, both room fingerprints and distance-based estimates have less evidence to work with.
+
+The offline hybrid uses the native estimator for a tentative starting room. It then checks the current room and its direct neighbours before searching farther. During brief gaps, the map can fade the last room at a rate based on observed packet cadence. Fresh evidence for a connected room can still trigger a move during that fade.
+
+| One saved walk with three receivers | Native tracker at `e796fa8` | Current opt-in tracker | Adaptive hybrid prototype |
+| --- | ---: | ---: | ---: |
+| Time without a room on the map | 0 s | 49.6 s | **0 s** |
+| Time in rooms outside the reported route | 27.9 s | 0 s | **0 s** |
+| Jumps between rooms without a direct connection | 5 | 0 | **0** |
+| Followed the full route in order | No | Yes | **Yes** |
+
+In 153 simulated packet-loss and signal-strength variations of that walk, the adaptive prototype followed the full route in 152 and also kept the map gap-free in 128. It showed no off-route rooms or jumps. A visible room can be tentative or held. The walk has no timestamped doorway crossings. On 13 held-out stationary recordings, both the native tracker and the adaptive prototype showed only the correct room in three. The hybrid is an offline experiment and is pending integration into this branch.
 
 ## Presence demos
 
