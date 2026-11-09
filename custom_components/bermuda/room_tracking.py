@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict, deque
 from statistics import median
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 
 class RoomEstimator(Protocol):
@@ -73,12 +73,14 @@ class FingerprintEstimator:
         for sample in samples:
             loss = 0
             common = quality = contradictions = 0
+            supporting = []
             for key in keys:
                 reference = sample["signals"].get(key)
                 live = _finite(current.get(key))
                 if reference and live:
                     loss += weights[key] * _huber((current[key] - reference["median"]) / noise[key])
                     common += 1
+                    supporting.append(key)
                     quality += reference["count"] >= 2
                     if (
                         reference["median"] > -75
@@ -101,6 +103,7 @@ class FingerprintEstimator:
                         "common": common,
                         "quality": quality,
                         "contradictions": contradictions,
+                        "supporting": sorted(supporting),
                     }
                 )
         candidates = sorted(
@@ -155,93 +158,149 @@ def shortest_path(start: str, target: str, edges: list) -> float:
     return math.inf
 
 
+class RoomVote(NamedTuple):
+    """One independent packet observation supporting a room."""
+
+    stamp: float
+    room: str
+    margin: float
+    strong: bool
+
+
 class TemporalTracker:
-    """Require fresh evidence, elapsed dwell time and plausible graph travel time."""
+    """Confirm rooms from fresh receiver observations and retain short gaps."""
+
+    HOLD_MS = 8000
+    CONTEXT_MS = 30000
+    VOTE_WINDOW_MS = 12000
+    VOTE_SPACING_MS = 800
+    PACKET_MAX_AGE_MS = 4000
 
     def __init__(self) -> None:
         self.confirmed = None
         self.confirmed_at = None
-        self.pending = None
-        self.pending_since = 0
-        self.count = 0
         self.receiver_stamps: dict[str, float] = {}
+        self.votes: deque[RoomVote] = deque()
 
     def update(
         self, estimate: dict, now: float, evidence: dict[str, float], model: dict, eligible: set[str] | None = None
     ) -> dict:
-        """Track receipt times in monotonic milliseconds, counting only eligible receivers."""
-        newest = max(
-            (
-                stamp
-                for key, stamp in evidence.items()
-                if (eligible is None or key in eligible) and stamp > self.receiver_stamps.get(key, -math.inf)
-            ),
-            default=None,
-        )
-        # Remember excluded observations too, so going back online cannot replay them.
+        """Advance from receipt times. Cached and excluded packets never count twice."""
+        recent = set()
+        fresh = {}
         for key, stamp in evidence.items():
-            self.receiver_stamps[key] = max(stamp, self.receiver_stamps.get(key, -math.inf))
-        edges = model.get("connections", [])
-        target = estimate.get("roomId") if estimate["kind"] == "match" else None
+            if not _finite(stamp) or stamp > now + 5000:
+                continue
+            if (eligible is None or key in eligible) and now - stamp <= self.PACKET_MAX_AGE_MS:
+                recent.add(key)
+            if stamp <= self.receiver_stamps.get(key, -math.inf):
+                continue
+            self.receiver_stamps[key] = stamp
+            if key in recent:
+                fresh[key] = min(now, stamp)
 
         elapsed = math.inf if self.confirmed_at is None else now - self.confirmed_at
-        previous = self.confirmed if elapsed <= 30000 else None
+        previous = self.confirmed if elapsed <= self.CONTEXT_MS else None
+        candidates = estimate.get("candidates", [])
         base = {
             "lastLocation": self.confirmed,
             "lastSeenAge": None if self.confirmed_at is None else elapsed,
-            "candidates": estimate.get("candidates", []),
+            "candidates": candidates,
             "reason": estimate.get("reason"),
         }
-        if target is None:
-            self.pending = None
-            self.count = 0
-            nearby = base["candidates"]
-            if previous and elapsed < 15000:
-                nearby = [candidate for candidate in nearby if shortest_path(previous, candidate["roomId"], edges) <= 1]
-            kind = estimate["kind"] if estimate["kind"] in {"learning", "unknown"} else "uncertain"
-            return {**base, "kind": kind, "location": None, "candidates": nearby}
-        if target == previous:
-            if newest is not None:
-                self.confirmed_at = now
-            self.pending = None
-            return {
-                **base,
-                "kind": "stable",
-                "location": target,
-                "reason": estimate.get("confidence"),
-            }
-        if self.pending != target:
-            self.pending = target
-            self.pending_since = now
-            self.count = 0
-        if newest is not None:
-            self.count += 1
-        distance = shortest_path(previous, target, edges) if previous else 0
-        dwell = (6000 if distance <= 1 else 10000) if previous else 3000
+        if elapsed <= self.HOLD_MS:
+            base["heldLocation"] = self.confirmed
+
+        while self.votes and now - self.votes[0].stamp > self.VOTE_WINDOW_MS:
+            self.votes.popleft()
+        edges = model.get("connections", [])
+        if candidates:
+            ranked = self._rank(candidates, previous, elapsed, edges)
+            cost, distance, leader = ranked[0]
+            room = leader["roomId"]
+            gap = min(1.0, ranked[1][0] - cost) if len(ranked) > 1 else 1.0
+            strong = estimate.get("roomId") == room and estimate["kind"] == "match"
+            corroborated = (
+                distance <= 1
+                and leader["common"] >= 2
+                and leader.get("quality", 0) >= 2
+                and not leader.get("contradictions")
+                and leader["score"] <= 2.2
+                and gap >= 0.10
+            )
+            supporting = leader["supporting"]
+            packet = max((fresh[key] for key in supporting if key in fresh), default=None)
+            if (strong or corroborated) and packet is not None:
+                if not self.votes or packet - self.votes[-1].stamp >= self.VOTE_SPACING_MS:
+                    self.votes.append(RoomVote(packet, room, gap, strong))
+                    can_acquire = previous is not None or (strong and len(recent.intersection(supporting)) >= 2)
+                    if can_acquire and self._can_confirm(room, leader["common"], distance, previous, packet, now):
+                        if room != self.confirmed:
+                            self.votes.clear()
+                        self.confirmed = room
+                        self.confirmed_at = packet
+                        return {
+                            **base,
+                            "kind": "stable",
+                            "location": room,
+                            "heldLocation": None,
+                            "lastLocation": room,
+                            "lastSeenAge": now - packet,
+                            "reason": "Consistent BLE evidence",
+                        }
+            if room != previous and (strong or corroborated):
+                return {
+                    **base,
+                    "kind": "transition",
+                    "location": None,
+                    "proposed": room,
+                    "reason": "Waiting for consistent readings and plausible travel time",
+                }
+
+        kind = estimate["kind"] if estimate["kind"] in {"learning", "unknown"} else "uncertain"
+        if previous and elapsed < 15000:
+            base["candidates"] = [
+                candidate for candidate in candidates if shortest_path(previous, candidate["roomId"], edges) <= 1
+            ]
+        return {**base, "kind": kind, "location": None}
+
+    @staticmethod
+    def _rank(candidates, previous, elapsed, edges):
+        ranked = []
+        for candidate in candidates:
+            distance = shortest_path(previous, candidate["roomId"], edges) if previous else 0
+            # Prefer nearby rooms only for similar fingerprints. Evidence can still
+            # confirm a distant room after enough travel time.
+            penalty = min(2, max(0, distance - 1)) * 0.35 * max(0.35, 1 - elapsed / 40000)
+            ranked.append((candidate["score"] + penalty, distance, candidate))
+        return sorted(ranked, key=lambda item: item[0])
+
+    def _can_confirm(self, room, overlap, distance, previous, packet, now):
+        if room == previous and self.votes[-1].strong:
+            return True
         travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0
-        if (
-            newest is not None
-            and self.count >= 2
-            and min(now, newest) - self.pending_since >= dwell
-            and (previous is None or min(now, newest) - self.confirmed_at >= travel)
-        ):
-            self.confirmed = target
-            self.confirmed_at = now
-            self.pending = None
-            return {
-                **base,
-                "kind": "stable",
-                "location": target,
-                "reason": estimate.get("confidence"),
-            }
-        return {
-            **base,
-            "kind": "transition",
-            "location": None,
-            "proposed": target,
-            "remainingMs": max(0, dwell - (now - self.pending_since), travel - elapsed),
-            "reason": "Waiting for consistent readings and plausible travel time",
-        }
+        supporting = [vote for vote in self.votes if vote.room == room]
+        span = packet - supporting[0].stamp
+        if previous and room != previous and max(packet - self.confirmed_at, span) < travel:
+            return False
+        if len(supporting) >= 2 and all(vote.room == room and vote.strong for vote in self.votes):
+            dwell = (6000 if distance <= 1 else 10000) if previous else 3000
+            if span >= dwell:
+                return True
+        if distance > 1:
+            return False
+        sparse = previous is None and overlap < 3
+        recent = self.votes if sparse else [vote for vote in self.votes if now - vote.stamp <= 8000]
+        supporting = [vote for vote in recent if vote.room == room]
+        opposition = sum(vote.margin for vote in recent if vote.room != room)
+        strength = sum(vote.margin for vote in supporting)
+        dwell = 8000 if sparse else 4000 if previous is None else 2400
+        return (
+            len(supporting) >= (5 if sparse else 3)
+            and packet - supporting[0].stamp >= dwell
+            and strength >= max(0.70, opposition + 0.22)
+            and (not sparse or opposition == 0)
+        )
 
 
 ESTIMATORS = {"fingerprint": FingerprintEstimator}

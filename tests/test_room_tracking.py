@@ -93,13 +93,13 @@ def fix(room):
         "kind": "match",
         "roomId": room,
         "confidence": "possible match",
-        "candidates": [{"roomId": room, "score": 0, "common": 3}],
+        "candidates": [{"roomId": room, "score": 0, "common": 3, "supporting": ["a", "b"]}],
     }
 
 
 def establish(tracker, model):
     assert tracker.update(fix("east"), 0, {"a": 0}, model)["kind"] == "transition"
-    assert tracker.update(fix("east"), 3000, {"a": 3000}, model)["location"] == "east"
+    assert tracker.update(fix("east"), 3000, {"a": 3000, "b": 2800}, model)["location"] == "east"
 
 
 def test_far_room_cannot_teleport_after_burst_of_observations(model):
@@ -159,7 +159,7 @@ def test_disconnected_room_still_needs_twenty_seconds_of_travel(model):
     establish(tracker, model)
     for now in (3100, 13100, 22999):
         assert tracker.update(fix("west"), now, {"a": now}, model)["location"] is None
-    assert tracker.update(fix("west"), 23000, {"a": 23000}, model)["location"] == "west"
+    assert tracker.update(fix("west"), 23900, {"a": 23900}, model)["location"] == "west"
 
 
 def test_unconfigured_receiver_keys_do_not_dilute_loss(model):
@@ -173,3 +173,47 @@ def test_unconfigured_receiver_keys_do_not_dilute_loss(model):
         prototype["signals"].update({f"other_{index}_{key}": None for key in range(13)})
         model["samples"].append(prototype)
     assert estimator.estimate(current, model, SIG) == baseline
+
+
+def test_short_gap_holds_last_room_without_renewing_from_cached_packets(model):
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    missing = {"kind": "unknown", "candidates": []}
+
+    gap = tracker.update(missing, 5000, {}, model)
+    assert gap["location"] is None
+    assert gap["heldLocation"] == "east"
+    cached = tracker.update(fix("east"), 8500, {"a": 3000, "b": 2800}, model)
+    assert cached["heldLocation"] == "east"
+    expired = tracker.update(missing, 11001, {}, model)
+    assert expired["location"] is None
+    assert "heldLocation" not in expired
+    assert expired["lastLocation"] == "east"
+
+
+def test_connected_room_accumulates_support_through_ambiguous_frames(model):
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    corridor = {"roomId": "corridor", "score": 0.6, "common": 2, "quality": 2, "supporting": ["a", "b"]}
+    rival = {"roomId": "east", "score": 0.95, "common": 2, "quality": 2, "supporting": ["a", "b"]}
+    narrow_lead = {"kind": "uncertain", "candidates": [corridor, rival]}
+    tie = {"kind": "uncertain", "candidates": [corridor, {**rival, "score": 0.6}]}
+
+    assert tracker.update(narrow_lead, 4000, {"a": 4000}, model)["heldLocation"] == "east"
+    tracker.update(tie, 4500, {"a": 4500}, model)
+    # A new packet from a receiver outside the fingerprint contributes no vote.
+    tracker.update(narrow_lead, 5000, {"a": 4500, "c": 5000}, model)
+    assert tracker.update(narrow_lead, 6000, {"a": 6000}, model)["location"] is None
+    tracker.update(tie, 6500, {"a": 6500}, model)
+    assert tracker.update(narrow_lead, 7000, {"a": 6500, "c": 7000}, model)["location"] is None
+    result = tracker.update(narrow_lead, 8000, {"a": 8000}, model)
+    assert result["location"] == "corridor"
+    assert result["heldLocation"] is None
+
+
+def test_cold_fix_needs_recent_packets_from_two_matching_receivers(model):
+    tracker = TemporalTracker()
+    for now in (5000, 8000, 9000):
+        result = tracker.update(fix("east"), now, {"a": now, "b": 0, "c": now}, model)
+        assert result["location"] is None
+    assert tracker.update(fix("east"), 10000, {"a": 10000, "b": 9950}, model)["location"] == "east"

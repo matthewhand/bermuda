@@ -8,7 +8,9 @@ The initial `fingerprint` estimator uses multiple prototypes per room, robust si
 
 The estimator interface and registry allow future modes without coupling signal comparison to movement rules. There is currently one implemented mode. Physical coordinates, metre dimensions and RSSI-to-distance conversion are not required.
 
-An independent temporal tracker requires distinct observations and elapsed dwell time. Room connections constrain transition timing. Unconnected rooms require longer confirmation; an old location is labelled last known rather than presented as a fresh fix. These timing rules are heuristics, not a trained motion probability model.
+The tracker holds the displayed room for up to eight seconds after its last confirmation. The Learned room sensor sets its `held` attribute during this grace period. The model response distinguishes `heldLocation` from a new `location`. Cached observations cannot renew the grace period.
+
+Fresh packets that support a connected room can build evidence across brief interruptions in the signal ranking. A first fix still requires a clear fingerprint and recent readings from at least two matching receivers. Unconnected rooms require longer confirmation. These timing rules are heuristics, not a trained motion probability model.
 
 ## Model services
 

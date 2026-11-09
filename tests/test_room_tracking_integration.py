@@ -69,6 +69,21 @@ async def test_ws_and_lifecycle(hass, setup_bermuda_entry, hass_ws_client, hass_
     learned = next(state for state in states["result"] if "learned_room" in state["entity_id"])
     assert learned["state"] != "disabled"
     assert not sensitive.intersection(learned["attributes"])
+
+    manager.result = {"kind": "transition", "location": None, "heldLocation": "east", "proposed": "corridor"}
+    manager.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    held = hass.states.get(learned["entity_id"])
+    assert held.state == "East"
+    assert held.attributes["held"] is True
+    assert not sensitive.intersection(held.attributes)
+
+    manager.result = {"kind": "unknown", "location": None, "lastLocation": "east"}
+    manager.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    expired = hass.states.get(learned["entity_id"])
+    assert expired.state == "unknown"
+    assert expired.attributes["held"] is False
     assert await hass.config_entries.async_reload(entry.entry_id)
     current = entry.runtime_data.coordinator.room_tracking
     assert current is not manager and current.model["revision"] == 2
