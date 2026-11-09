@@ -854,6 +854,7 @@ class TestUpdateAdvertisementEdgeCases:
         scanner.area_name = "Local Room"
         scanner.is_remote_scanner = False  # Local scanner
         scanner.last_seen = 0.0
+        scanner.async_as_scanner_get_stamp.return_value = None
 
         options: dict[str, Any] = {
             CONF_RSSI_OFFSETS: {},
