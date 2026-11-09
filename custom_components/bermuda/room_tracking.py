@@ -175,12 +175,18 @@ class TemporalTracker:
     VOTE_WINDOW_MS = 12000
     VOTE_SPACING_MS = 800
     PACKET_MAX_AGE_MS = 4000
+    ADJACENT_WINDOW_MS = 8000
+    ADJACENT_DWELL_MS = 1700
+    MIN_TRAVEL_MS = 4000
 
     def __init__(self) -> None:
         self.confirmed = None
         self.confirmed_at = None
         self.receiver_stamps: dict[str, float] = {}
         self.votes: deque[RoomVote] = deque()
+        self.adjacent_votes: dict[str, deque[tuple[float, bool]]] = defaultdict(deque)
+        self.was_placed = False
+        self.unplaced_since = -math.inf
 
     def update(
         self, estimate: dict, now: float, evidence: dict[str, float], model: dict, eligible: set[str] | None = None
@@ -214,6 +220,7 @@ class TemporalTracker:
         while self.votes and now - self.votes[0].stamp > self.VOTE_WINDOW_MS:
             self.votes.popleft()
         edges = model.get("connections", [])
+        proposed = None
         if candidates:
             ranked = self._rank(candidates, previous, elapsed, edges)
             cost, distance, leader = ranked[0]
@@ -234,28 +241,33 @@ class TemporalTracker:
                 if not self.votes or packet - self.votes[-1].stamp >= self.VOTE_SPACING_MS:
                     self.votes.append(RoomVote(packet, room, gap, strong))
                     can_acquire = previous is not None or (strong and len(recent.intersection(supporting)) >= 2)
-                    if can_acquire and self._can_confirm(room, leader["common"], distance, previous, packet, now):
-                        if room != self.confirmed:
-                            self.votes.clear()
-                        self.confirmed = room
-                        self.confirmed_at = packet
-                        return {
-                            **base,
-                            "kind": "stable",
-                            "location": room,
-                            "heldLocation": None,
-                            "lastLocation": room,
-                            "lastSeenAge": now - packet,
-                            "reason": "Consistent BLE evidence",
-                        }
+                    if (
+                        can_acquire
+                        and self._move_allowed(
+                            leader, candidates, recent, distance=distance, previous=previous, packet=packet, now=now
+                        )
+                        and self._can_confirm(room, leader["common"], distance, previous, packet=packet, now=now)
+                    ):
+                        return self._confirm(base, room, packet, now, "Consistent BLE evidence")
             if room != previous and (strong or corroborated):
-                return {
-                    **base,
-                    "kind": "transition",
-                    "location": None,
-                    "proposed": room,
-                    "reason": "Waiting for consistent readings and plausible travel time",
-                }
+                proposed = room
+
+        if previous and candidates and (fix := self._adjacent_fix(candidates, fresh, now, edges, previous)):
+            room, packet = fix
+            return self._confirm(base, room, packet, now, "Repeated adjacent BLE evidence")
+
+        placed = bool(base.get("heldLocation"))
+        if self.was_placed and not placed:
+            self.unplaced_since = now
+        self.was_placed = placed
+        if proposed is not None:
+            return {
+                **base,
+                "kind": "transition",
+                "location": None,
+                "proposed": proposed,
+                "reason": "Waiting for consistent readings and plausible travel time",
+            }
 
         kind = estimate["kind"] if estimate["kind"] in {"learning", "unknown"} else "uncertain"
         if previous and elapsed < 15000:
@@ -263,6 +275,69 @@ class TemporalTracker:
                 candidate for candidate in candidates if shortest_path(previous, candidate["roomId"], edges) <= 1
             ]
         return {**base, "kind": kind, "location": None}
+
+    def _confirm(self, base, room, packet, now, reason):
+        if self.confirmed is None:
+            placement = "initial"
+        elif not self.was_placed:
+            placement = "reacquired"
+        elif room != self.confirmed:
+            placement = "move"
+        else:
+            placement = "continued"
+        if room != self.confirmed:
+            self.votes.clear()
+        if placement != "continued":
+            self.adjacent_votes.clear()
+        self.confirmed = room
+        self.confirmed_at = packet
+        self.was_placed = True
+        return {
+            **base,
+            "kind": "stable",
+            "placement": placement,
+            "location": room,
+            "heldLocation": None,
+            "lastLocation": room,
+            "lastSeenAge": now - packet,
+            "reason": reason,
+        }
+
+    def _adjacent_fix(self, candidates, fresh, now, edges, previous):
+        neighbors = {right if left == previous else left for left, right in edges if previous in (left, right)}
+        leader = candidates[0]
+        for candidate in candidates:
+            room = candidate["roomId"]
+            if room not in neighbors or candidate["common"] < 3 or candidate["quality"] < 2:
+                continue
+            if candidate["contradictions"] or candidate["score"] > 2.2:
+                continue
+            leads = candidate is leader
+            if not leads and (
+                leader["roomId"] in neighbors
+                or leader["roomId"] == previous
+                or candidate["common"] <= leader["common"]
+                or candidate["score"] - leader["score"] > 1.1
+            ):
+                continue
+            packet = max((fresh[key] for key in candidate["supporting"] if key in fresh), default=None)
+            if packet is None:
+                continue
+            votes = self.adjacent_votes[room]
+            while votes and now - votes[0][0] > self.ADJACENT_WINDOW_MS:
+                votes.popleft()
+            if votes and packet - votes[-1][0] < self.VOTE_SPACING_MS:
+                continue
+            votes.append((packet, leads))
+            # A runner-up can sustain recent evidence, but must have led at least once.
+            if (
+                len(votes) >= 3
+                and packet - votes[0][0] >= self.ADJACENT_DWELL_MS
+                and any(led for _, led in votes)
+                and packet - self.confirmed_at >= self.MIN_TRAVEL_MS
+            ):
+                return room, packet
+        return None
 
     @staticmethod
     def _rank(candidates, previous, elapsed, edges):
@@ -275,7 +350,35 @@ class TemporalTracker:
             ranked.append((candidate["score"] + penalty, distance, candidate))
         return sorted(ranked, key=lambda item: item[0])
 
-    def _can_confirm(self, room, overlap, distance, previous, packet, now):
+    def _move_allowed(self, candidate, candidates, recent_receivers, *, distance, previous, packet, now):
+        room = candidate["roomId"]
+        overlap = candidate["common"]
+        if (self.was_placed and room != self.confirmed and (previous is None or distance > 1)) or (
+            self.confirmed and previous is None and packet <= self.unplaced_since
+        ):
+            return False
+        if room != self.confirmed and distance > 1:
+            support = [vote for vote in self.votes if vote.room == room and vote.stamp > self.unplaced_since]
+            if len(support) < 2 or packet - support[0].stamp < 10000:
+                return False
+        if overlap == 2 and self.confirmed is None:
+            return sum(vote.room == room and vote.strong for vote in self.votes) >= 3
+        if overlap == 2 and previous and room != previous:
+            raw_gap = candidates[1]["score"] - candidates[0]["score"] if len(candidates) > 1 else 1.0
+            if (
+                candidate is not candidates[0]
+                or raw_gap < 0.25
+                or len(recent_receivers.intersection(candidate["supporting"])) < 2
+            ):
+                return False
+            clear = sum(
+                vote.room == room and now - vote.stamp <= self.ADJACENT_WINDOW_MS and vote.margin >= 0.30
+                for vote in self.votes
+            )
+            return clear >= 2 and self.votes[-1].margin >= 0.30
+        return True
+
+    def _can_confirm(self, room, overlap, distance, previous, *, packet, now):
         if room == previous and self.votes[-1].strong:
             return True
         travel = (max(4000, distance * 3000) if math.isfinite(distance) else 20000) if previous else 0

@@ -93,7 +93,9 @@ def fix(room):
         "kind": "match",
         "roomId": room,
         "confidence": "possible match",
-        "candidates": [{"roomId": room, "score": 0, "common": 3, "supporting": ["a", "b"]}],
+        "candidates": [
+            {"roomId": room, "score": 0, "common": 3, "quality": 0, "contradictions": 0, "supporting": ["a", "b"]}
+        ],
     }
 
 
@@ -110,7 +112,12 @@ def test_far_room_cannot_teleport_after_burst_of_observations(model):
         assert result["kind"] == "transition"
         assert result["location"] is None
         assert result["lastLocation"] == "east"
-    assert tracker.update(fix("west"), 13100, {"a": 13100}, model)["location"] == "west"
+    gap = tracker.update(fix("west"), 13100, {"a": 13100}, model)
+    assert gap["location"] is None and "heldLocation" not in gap
+    assert tracker.update(fix("west"), 14000, {"a": 14000}, model)["location"] is None
+    result = tracker.update(fix("west"), 24000, {"a": 24000}, model)
+    assert result["location"] == "west"
+    assert result["placement"] == "reacquired"
 
 
 def test_repeated_render_of_one_observation_does_not_confirm_location(model):
@@ -146,20 +153,20 @@ def test_disconnected_rooms_are_not_treated_as_adjacent(model):
 def test_packet_must_corroborate_the_candidate_after_dwell(model):
     tracker = TemporalTracker()
     establish(tracker, model)
-    assert tracker.update(fix("west"), 3100, {"a": 3100}, model)["location"] is None
-    assert tracker.update(fix("west"), 3200, {"a": 3200}, model)["location"] is None
-    assert tracker.update(fix("west"), 13100, {"a": 3200}, model)["location"] is None
-    assert tracker.update(fix("west"), 14000, {"a": 13099}, model)["location"] is None
-    assert tracker.update(fix("west"), 15000, {"a": 15000}, model)["location"] == "west"
+    assert tracker.update(fix("corridor"), 3100, {"a": 3100}, model)["location"] is None
+    assert tracker.update(fix("corridor"), 3200, {"a": 3200}, model)["location"] is None
+    assert tracker.update(fix("corridor"), 9100, {"a": 3200}, model)["location"] is None
+    assert tracker.update(fix("corridor"), 10000, {"a": 9099}, model)["location"] is None
+    assert tracker.update(fix("corridor"), 11000, {"a": 11000}, model)["location"] == "corridor"
 
 
 def test_disconnected_room_still_needs_twenty_seconds_of_travel(model):
     tracker = TemporalTracker()
     model["connections"] = []
     establish(tracker, model)
-    for now in (3100, 13100, 22999):
+    for now in (3100, 11500, 12400, 22400):
         assert tracker.update(fix("west"), now, {"a": now}, model)["location"] is None
-    assert tracker.update(fix("west"), 23900, {"a": 23900}, model)["location"] == "west"
+    assert tracker.update(fix("west"), 23400, {"a": 23400}, model)["location"] == "west"
 
 
 def test_unconfigured_receiver_keys_do_not_dilute_loss(model):
@@ -206,9 +213,31 @@ def test_connected_room_accumulates_support_through_ambiguous_frames(model):
     assert tracker.update(narrow_lead, 6000, {"a": 6000}, model)["location"] is None
     tracker.update(tie, 6500, {"a": 6500}, model)
     assert tracker.update(narrow_lead, 7000, {"a": 6500, "c": 7000}, model)["location"] is None
-    result = tracker.update(narrow_lead, 8000, {"a": 8000}, model)
+    assert tracker.update(narrow_lead, 8000, {"a": 8000, "b": 2800}, model)["location"] is None
+    result = tracker.update(narrow_lead, 9000, {"a": 9000, "b": 9000}, model)
     assert result["location"] == "corridor"
     assert result["heldLocation"] is None
+
+
+def test_three_receivers_sustain_adjacent_room_through_competing_lead(model):
+    tracker = TemporalTracker()
+    establish(tracker, model)
+    corridor = {
+        "roomId": "corridor",
+        "score": 0.6,
+        "common": 3,
+        "quality": 3,
+        "contradictions": 0,
+        "supporting": ["a", "b", "c"],
+    }
+    west = {"roomId": "west", "score": 0.4, "common": 2, "quality": 2, "contradictions": 0, "supporting": ["a", "b"]}
+    first = {"kind": "uncertain", "candidates": [corridor, {**west, "score": 0.65}]}
+    later = {"kind": "uncertain", "candidates": [west, corridor]}
+    assert tracker.update(first, 5000, {"a": 5000}, model)["location"] is None
+    assert tracker.update(later, 6000, {"c": 6000}, model)["location"] is None
+    result = tracker.update(later, 7000, {"c": 7000}, model)
+    assert result["location"] == "corridor"
+    assert result["placement"] == "move"
 
 
 def test_cold_fix_needs_recent_packets_from_two_matching_receivers(model):

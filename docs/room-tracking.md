@@ -10,7 +10,7 @@ The estimator interface and registry allow future modes without coupling signal 
 
 The tracker holds the displayed room for up to eight seconds after its last confirmation. The Learned room sensor sets its `held` attribute during this grace period. The model response distinguishes `heldLocation` from a new `location`. Cached observations cannot renew the grace period.
 
-Fresh packets that support a connected room can build evidence across brief interruptions in the signal ranking. A first fix still requires a clear fingerprint and recent readings from at least two matching receivers. Unconnected rooms require longer confirmation. These timing rules are heuristics, not a trained motion probability model.
+Fresh packets can sustain evidence for a connected room through brief interruptions in the signal ranking. A move relying on two matching receivers requires both readings to be recent. A distant fix requires additional evidence after the previous room has dropped from view. Confirmed results include a `placement` field so clients can distinguish an initial fix, a move, a reacquisition after a gap, or a continued fix. These timing rules are heuristics, not a trained motion probability model.
 
 ## Model services
 
