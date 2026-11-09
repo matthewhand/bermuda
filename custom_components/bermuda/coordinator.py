@@ -93,6 +93,7 @@ from .const import (
 )
 from .correlation import AreaProfile, CorrelationStore, RoomProfile
 from .fmdn import FmdnIntegration
+from .local_ibeacon import LocalIBeaconCapture
 from .metadevice_manager import MetadeviceManager
 from .scanner_calibration import ScannerCalibrationManager, update_scanner_calibration
 from .services import BermudaServiceHandler
@@ -103,6 +104,7 @@ CORRELATION_SAVE_INTERVAL = 300  # Save learned correlations every 5 minutes
 
 
 if TYPE_CHECKING:
+    from bleak.backends.scanner import AdvertisementData
     from habluetooth import BaseHaScanner, BluetoothServiceInfoBleak
     from homeassistant.components.bluetooth import (
         BluetoothChange,
@@ -296,10 +298,19 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
                     self.options[key] = val
 
         self.devices: dict[str, BermudaDevice] = {}
-        # self.updaters: dict[str, BermudaPBDUCoordinator] = {}
+        register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
+        self.local_ibeacon = LocalIBeaconCapture(
+            (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
+            lambda: self.options.get(CONF_DEVICES, []),
+            lambda source: (scanner := self._get_device(source)) is not None
+            and scanner.is_scanner
+            and not scanner.is_remote_scanner,
+            monotonic_time_coarse,
+        )
 
         # Register for newly discovered / changed BLE devices
         if self.config_entry is not None:
+            self.config_entry.async_on_unload(self.local_ibeacon.close)
             self.config_entry.async_on_unload(
                 bluetooth.async_register_callback(
                     self.hass,
@@ -1064,6 +1075,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
         # If there are no active entities created after Bermuda's
         # initial setup, then no updates will be triggered on the co-ordinator.
         # So let's check if we haven't updated recently, and do so...
+        self.local_ibeacon.observe(service_info)
         if self.stamp_last_update < monotonic_time_coarse() - (UPDATE_INTERVAL * 2):
             self._async_update_data_internal()
 
@@ -1667,6 +1679,12 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
         if self._scanner_init_pending:
             self._refresh_scanners(force=True)
 
+        # Use the packet with the proven time before reading the scanner caches.
+        for info in self.local_ibeacon.drain():
+            scanner = self._get_device(info.source)
+            if scanner is not None and scanner.is_scanner and not scanner.is_remote_scanner:
+                self._process_scanner_advertisement(scanner, info.address, info.advertisement)
+
         for ha_scanner in self._hascanners:
             # Create / Get the BermudaDevice for this scanner
             scanner_device = self._get_device(ha_scanner.source)
@@ -1692,64 +1710,30 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
 
             # Now go through the scanner's adverts and send them to our device objects.
             for bledevice, advertisementdata in ha_scanner.discovered_devices_and_advertisement_data.values():
-                if adstamp := scanner_device.async_as_scanner_get_stamp(bledevice.address):
-                    if adstamp < self.stamp_last_update_started - 3:
-                        # skip older adverts that should already have been processed
-                        continue
+                adstamp = scanner_device.async_as_scanner_get_stamp(bledevice.address)
+                if adstamp is not None and not scanner_device.is_remote_scanner:
+                    # Only the callback packet can use a proven local timestamp.
+                    continue
+                if adstamp and adstamp < self.stamp_last_update_started - 3:
+                    continue
                 if advertisementdata.rssi == -127:
                     # BlueZ is pushing bogus adverts for paired but absent devices.
                     continue
 
-                # ============================================================
-                # RESOLUTION FIRST: Identity resolvers run BEFORE any filtering
-                # ============================================================
-                # CRITICAL: The identity resolution hooks MUST run BEFORE
-                # process_advertisement() so that rotating MAC addresses can be
-                # linked to their metadevices before any state updates happen.
-                #
-                # Without this order, devices with rotating MACs (Apple IRK,
-                # Google FMDN) would be treated as "unknown noise" and their
-                # advertisement data would be lost.
-
-                # 1. Create/get the device object (OHNE Filter!)
-                # We need the object so resolvers can store their state.
-                device = self._get_or_create_device(bledevice.address)
-
-                # 2. Identity Resolution Hooks (MUST run before process_advertisement!)
-
-                # A. Apple IRK Resolution (iPhone, Watch, AirTag, etc.)
-                # Checks if the random MAC belongs to a known IRK.
-                # This is called on every advertisement to catch cases where:
-                # - The IRK was learned after the device was first seen
-                # - The MAC rotated to a new address that now matches a known IRK
-                # The check is cheap because irk_manager caches results.
-                # scan_device() returns (matched, result) and fires callbacks when matched.
-                if self.irk_manager:
-                    self.irk_manager.scan_device(bledevice.address)
-
-                # B. Google FMDN Resolution (Find My Device Network)
-                # Checks for Service UUID 0xFEAA and resolves EIDs to devices.
-                # Must run on EVERY advertisement - the resolver checks internally
-                # whether the service data contains FMDN payloads.
-                # Pass service_data DIRECTLY to ensure no transformation loses data.
-                if self.fmdn:
-                    service_data = cast(
-                        "Mapping[str | int, Any]",
-                        advertisementdata.service_data or {},
-                    )
-                    self.fmdn.handle_advertisement(device, service_data)
-
-                # 3. Standard Processing (RSSI, Scanner info, etc.)
-                # ONLY NOW do we process the physical advertisement data,
-                # after identity resolution has had a chance to "claim" the device.
-                device.process_advertisement(scanner_device, advertisementdata)
-
-                # ============================================================
-                # END RESOLUTION FIRST
-                # ============================================================
-
-        # end of for ha_scanner loop
+                self._process_scanner_advertisement(scanner_device, bledevice.address, advertisementdata)
         return True
+
+    def _process_scanner_advertisement(
+        self, scanner: BermudaDevice, address: str, advertisement: AdvertisementData
+    ) -> None:
+        """Resolve rotating addresses before updating advert state."""
+        device = self._get_or_create_device(address)
+        if self.irk_manager:
+            self.irk_manager.scan_device(address)
+        if self.fmdn:
+            service_data = cast("Mapping[str | int, Any]", advertisement.service_data or {})
+            self.fmdn.handle_advertisement(device, service_data)
+        device.process_advertisement(scanner, advertisement)
 
     def prune_devices(self, force_pruning: bool = False) -> None:  # noqa: C901, FBT001
         """
@@ -1921,6 +1905,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
             # FIX: BUG 7 - Also remove from device_ukfs to prevent memory leak
             # Without this, UKF states for pruned devices accumulate forever
             self.device_ukfs.pop(device_address, None)
+        self.local_ibeacon.prune(self.devices)
 
         # Clean out the scanners dicts in metadevices and scanners
         # (scanners will have entries if they are also beacons, although
