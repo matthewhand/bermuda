@@ -4,9 +4,20 @@
 
 This development branch builds on the actively maintained [jleinenbach Bermuda fork](https://github.com/jleinenbach/bermuda), including its room training and Google Find My support. Thanks to Jens Leinenbach and the fork's contributors for maintaining it, and to Ashley Gittins and the original Bermuda contributors. The Git history and [MIT license](LICENSE) carry forward.
 
-We use this branch to try improvements in our own Home Assistant setup. Our initial baseline is room tracking with three receivers in a house with internal brick walls. We use saved, labelled walks to check room order, time spent unplaced and wrong-room decisions. Extra receivers, sensor hints and measured geometry are optional.
+## Milestones and progress
 
-Experiments are opt-in. We keep the [local USB iBeacon fix](https://github.com/matthewhand/bermuda/pull/5) and the [learned-room experiment](https://github.com/matthewhand/bermuda/pull/6) separate for review so they can be considered independently. The simplified layout UI is separate work.
+Our baseline is room tracking with three BLE receivers in a single-storey house with internal brick walls. We use saved walks to check room order, wrong-room decisions, time unplaced and transition delay where the labels support it. Extra receivers, sensor hints and measured geometry are optional.
+
+| Goal | Progress | Next check |
+| --- | --- | --- |
+| Keep USB iBeacon readings fresh at steady signal strength | The [USB fix](https://github.com/matthewhand/bermuda/pull/5) passed 174 focused tests on Home Assistant Core 2026.11.0. Core's Bluetooth callback also delivered 60 injected equal-RSSI packets, and the fix rejected a packet without raw proof. | Compare stock and patched builds on the same physical USB scanner with the transmitter stationary. |
+| Track rooms through brief signal gaps | The [opt-in room tracker](https://github.com/matthewhand/bermuda/pull/6) and USB fix passed 208 focused tests together. The tracker confirmed three rooms in order on one saved walk with zero off-route confirmations. It left all 13 held-out sessions unplaced. | Replay the same recordings against the fork's native room tracker and compare wrong-room decisions, time unplaced and transition delay. |
+| Reuse calibration with the native fingerprint model | An in-memory import of saved observations produced learned receiver pairs for 9 of 10 rooms. In the remaining room, only one receiver heard the beacon. | Check whether the native tracker can retain a previously confirmed room with one receiver and how it recovers when coverage improves. |
+| Offer a simple floor plan, calibration and replay UI | The editor, recording controls and replay tools exist in the separate Presence project. | Connect them to this fork and verify the workflow with saved recordings. |
+| Use optional location hints | Presence has charging, device activity and directional presence hints. Door-contact support is staged. | Replay each hint independently and verify live watch and door inputs before enabling them. |
+| Estimate continuous map positions | The current experiment produces room labels. | Evaluate continuous coordinates separately once room tracking is reliable on the three-receiver baseline. |
+
+**Next live milestone.** On Core 2026.11.0, compare independently observed USB packet timestamps with Bermuda's reading age in stock and patched runs. Use the same stationary transmitter and receiver setup in both runs, then restore the original installation. This is the validation step before considering a contribution of the USB fix. We keep the USB fix and room-tracking experiment separate for review.
 
 Report issues with this development branch in [our fork](https://github.com/matthewhand/bermuda/issues). The guide below describes the maintained base and links to its releases.
 
