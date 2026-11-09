@@ -28,7 +28,12 @@ class LocalIBeaconCapture:
         if len(data) < 23 or data[:2] != b"\x02\x15":
             return False
         identity = f"{data[2:18].hex()}_{int.from_bytes(data[18:20], 'big')}_{int.from_bytes(data[20:22], 'big')}"
-        return identity.upper() in self._configured()
+        configured = self._configured()
+        # This fork stores canonical lowercase identifiers. Older entries may
+        # contain uppercase or dashed UUIDs.
+        return identity in configured or any(
+            isinstance(address, str) and address.strip().replace("-", "").lower() == identity for address in configured
+        )
 
     def _is_configured_packet(self, raw):
         """Read BLE advertising structures, which include a length and type."""

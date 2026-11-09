@@ -14,8 +14,8 @@ ADDRESS = "AA:BB:CC:DD:EE:01"
 DATA = bytes.fromhex("021500112233445566778899aabbccddeeff00649c44c5")
 
 
-@pytest.fixture
-def capture_fixture(monkeypatch):
+@pytest.fixture(params=[IDENTITY, IDENTITY.upper(), "00112233-4455-6677-8899-AABBCCDDEEFF_100_40004"])
+def capture_fixture(monkeypatch, request):
     clock = [100.0]
     callbacks = {}
 
@@ -24,7 +24,7 @@ def capture_fixture(monkeypatch):
         return lambda: callbacks.pop(address, None)
 
     capture = LocalIBeaconCapture(
-        register, lambda: [IDENTITY.upper()], lambda source: source == SOURCE, lambda: clock[0], max_addresses=2
+        register, lambda: [request.param], lambda source: source == SOURCE, lambda: clock[0], max_addresses=2
     )
     monkeypatch.setattr("custom_components.bermuda.bermuda_advert.monotonic_time_coarse", lambda: clock[0])
     return capture, clock, callbacks

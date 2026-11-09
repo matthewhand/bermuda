@@ -26,7 +26,7 @@ async def test_real_callback_to_metadevice_and_reload(hass, setup_bermuda_entry,
     manager = get_manager()
     scanner = next(scanner for scanner in manager.async_current_scanners() if scanner.connectable)
     source = scanner.source
-    coordinator.options[CONF_DEVICES] = [IDENTITY.upper()]
+    coordinator.options[CONF_DEVICES] = [IDENTITY]
     coordinator._waitingfor_load_manufacturer_ids = False  # The suite stubs the loader.
     coordinator._refresh_scanners(force=True)
     old_capture = coordinator.local_ibeacon
@@ -82,7 +82,7 @@ async def test_real_callback_to_metadevice_and_reload(hass, setup_bermuda_entry,
     assert await hass.config_entries.async_reload(entry.entry_id)
     new = entry.runtime_data.coordinator
     assert new is not coordinator
-    new.options[CONF_DEVICES] = [IDENTITY.upper()]
+    new.options[CONF_DEVICES] = [IDENTITY]
     new._waitingfor_load_manufacturer_ids = False
     new._refresh_scanners(force=True)
     assert not old_capture._cancel and not old_capture._stamps
