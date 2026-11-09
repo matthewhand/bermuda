@@ -4,6 +4,8 @@
 
 This development branch builds on the actively maintained [jleinenbach Bermuda fork](https://github.com/jleinenbach/bermuda), including its room training and Google Find My support. Thanks to Jens Leinenbach and the fork's contributors for maintaining it, and to Ashley Gittins and the original Bermuda contributors. The Git history and [MIT license](LICENSE) carry forward.
 
+[Milestones and progress](#milestones-and-progress) · [Presence overview](#presence-overview) · [Floor-plan editor](#floor-plan-editor)
+
 ## Milestones and progress
 
 Our baseline is room tracking with three BLE receivers in a single-storey house with internal brick walls. We use saved walks to check room order, wrong-room decisions, time unplaced and transition delay where the labels support it. Extra receivers, sensor hints and measured geometry are optional.
@@ -18,6 +20,22 @@ Our baseline is room tracking with three BLE receivers in a single-storey house 
 | Estimate continuous map positions | The current experiment produces room labels. | Evaluate continuous coordinates separately once room tracking is reliable on the three-receiver baseline. |
 
 **Next live milestone.** On Core 2026.11.0, compare independently observed USB packet timestamps with Bermuda's reading age in stock and patched runs. Use the same stationary transmitter and receiver setup in both runs, then restore the original installation. This is the validation step before considering a contribution of the USB fix. We keep the USB fix and room-tracking experiment separate for review.
+
+## Presence demos
+
+These recordings show the separate Presence frontend using a fictional plan and simulated movement. Integration with this branch is a development milestone.
+
+### Presence overview
+
+A demo phone and tag move between rooms. Each identity has its own marker and colour.
+
+![Simulated phone and tag moving between rooms on the Presence floor plan](img/presence-floor-plan.gif)
+
+### Floor-plan editor
+
+The editor shows room connections, BLE receiver placement and optional hints for charging, device activity, directional presence and door contacts.
+
+![Floor-plan editor showing room connections, BLE receivers and optional location hints](img/presence-floor-plan-editor.gif)
 
 Report issues with this development branch in [our fork](https://github.com/matthewhand/bermuda/issues). The guide below describes the maintained base and links to its releases.
 
