@@ -1,9 +1,14 @@
 ![Bermuda Logo](img/logo@2x.png)
 
-> **This is a fork of [agittins/bermuda](https://github.com/agittins/bermuda).**
-> All credit for the original Bermuda BLE Trilateration integration goes to [@agittins](https://github.com/agittins).
-> This fork is maintained by [@jleinenbach](https://github.com/jleinenbach).
-> Please report issues for this fork at [jleinenbach/bermuda/issues](https://github.com/jleinenbach/bermuda/issues).
+# Bermuda Plus development
+
+This development branch builds on the actively maintained [jleinenbach Bermuda fork](https://github.com/jleinenbach/bermuda), including its room training and Google Find My support. Thanks to Jens Leinenbach and the fork's contributors for maintaining it, and to Ashley Gittins and the original Bermuda contributors. The Git history and [MIT license](LICENSE) carry forward.
+
+We use this branch to try improvements in our own Home Assistant setup. Our initial baseline is room tracking with three receivers in a house with internal brick walls. We use saved, labelled walks to check room order, time spent unplaced and wrong-room decisions. Extra receivers, sensor hints and measured geometry are optional.
+
+Experiments are opt-in. This fork can continue to carry them while we offer narrowly scoped changes to jleinenbach for review. The first candidate is the local USB iBeacon freshness fix. Room-estimation experiments and the simplified layout UI are separate work.
+
+Report issues with this development branch in [our fork](https://github.com/matthewhand/bermuda/issues). The guide below describes the maintained base and links to its releases.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jleinenbach&repository=bermuda&category=Integration)
 
@@ -11,7 +16,7 @@
 
 - Track bluetooth devices by Area (Room) in [Home Assistant](https://home-assistant.io/), using [ESPHome](https://esphome.io/) [Bluetooth Proxies](https://esphome.io/components/bluetooth_proxy.html) and Shelly Gen2 or later devices.
 
-- (eventually) Triangulate device positions! Like, on a map. Maybe.
+- The maintained base estimates rooms and receiver distances. The development work starts with reliable room decisions on a simple plan. Continuous coordinates are a separate experiment.
 
 
 [![GitHub Release][releases-shield]][releases]
