@@ -47,6 +47,8 @@ from custom_components.bermuda.services import BermudaServiceHandler
 def _make_coordinator(hass: HomeAssistant) -> BermudaDataUpdateCoordinator:
     """Build a lightweight coordinator for tests."""
     coordinator = BermudaDataUpdateCoordinator.__new__(BermudaDataUpdateCoordinator)
+    coordinator.local_ibeacon = MagicMock()
+    coordinator.local_ibeacon.get_stamp.return_value = None
     coordinator.hass = hass
     coordinator.options = {
         CONF_DEVICES: [],

@@ -28,6 +28,7 @@ from custom_components.bermuda.util import normalize_mac
 def mock_coordinator() -> Generator[MagicMock, None, None]:
     """Fixture for mocking BermudaDataUpdateCoordinator."""
     coordinator = MagicMock()
+    coordinator.local_ibeacon.get_stamp.return_value = None
     coordinator.options = {
         CONF_ATTENUATION: DEFAULT_ATTENUATION,
         CONF_REF_POWER: DEFAULT_REF_POWER,
