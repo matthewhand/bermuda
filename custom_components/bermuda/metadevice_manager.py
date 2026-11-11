@@ -360,6 +360,7 @@ class MetadeviceManager:
             # Keep track of whether we want to recalculate the name fields at the end.
             _want_name_update = False
             _sources_to_remove: list[str] = []
+            is_ibeacon = METADEVICE_IBEACON_DEVICE in metadevice.metadevice_type
 
             for source_address in metadevice.metadevice_sources:
                 # Get the BermudaDevice holding those adverts
@@ -371,10 +372,7 @@ class MetadeviceManager:
                     # or now showing up yet.
                     continue
 
-                if (
-                    METADEVICE_IBEACON_DEVICE in metadevice.metadevice_type
-                    and metadevice.beacon_unique_id != source_device.beacon_unique_id
-                ):
+                if is_ibeacon and metadevice.beacon_unique_id != source_device.beacon_unique_id:
                     # This source device no longer has the same ibeacon uuid+maj+min as
                     # the metadevice has.
                     # Some iBeacons (specifically Bluecharms) change uuid on movement.
@@ -402,9 +400,17 @@ class MetadeviceManager:
                         _sources_to_remove.append(source_device.address)
                     continue  # to next metadevice_source
 
-                # Copy every ADVERT_TUPLE into our metadevice
-                for advert_tuple in source_device.adverts:
-                    metadevice.adverts[advert_tuple] = source_device.adverts[advert_tuple]
+                for advert_tuple, advert in source_device.adverts.items():
+                    existing = metadevice.adverts.get(advert_tuple)
+                    if (
+                        is_ibeacon
+                        and existing is not None
+                        and existing.is_proven_local_ibeacon
+                        and not advert.scanner_sends_stamps
+                    ):
+                        # A cache reading on this MAC/scanner cannot replace packet evidence.
+                        continue
+                    metadevice.adverts[advert_tuple] = advert
 
                 # Update last_seen if the source is newer.
                 metadevice.last_seen = max(metadevice.last_seen, source_device.last_seen)
@@ -477,6 +483,8 @@ class MetadeviceManager:
                 metadevice.metadevice_sources.remove(source)
             if _want_name_update:
                 metadevice.make_name()
+            if is_ibeacon and any(advert.is_proven_local_ibeacon for advert in metadevice.adverts.values()):
+                metadevice.last_seen = max(advert.stamp for advert in metadevice.adverts.values())
 
     def aggregate_source_data_to_metadevices(self) -> None:
         """
@@ -495,6 +503,13 @@ class MetadeviceManager:
         evidence_cutoff = nowstamp - EVIDENCE_WINDOW_SECONDS
 
         for metadevice in self.metadevices.values():
+            if METADEVICE_IBEACON_DEVICE in metadevice.metadevice_type and any(
+                advert.is_proven_local_ibeacon for advert in metadevice.adverts.values()
+            ):
+                # Area selection already used the logical beacon's adverts.
+                # The MAC may have fresher, unrelated packets and a different area.
+                continue
+
             best_source: BermudaDevice | None = None
             best_last_seen: float = 0.0
 

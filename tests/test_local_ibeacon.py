@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from bleak.backends.scanner import AdvertisementData
 
 from custom_components.bermuda.bermuda_advert import BermudaAdvert
 from custom_components.bermuda.const import AREA_MAX_AD_AGE_DEFAULT
@@ -31,9 +32,7 @@ def capture_fixture(monkeypatch, request):
 
 
 def packet(clock, **changes):
-    advert = SimpleNamespace(
-        rssi=-64, tx_power=-59, local_name=None, manufacturer_data={76: DATA}, service_data={}, service_uuids=[]
-    )
+    advert = AdvertisementData(None, {76: DATA}, {}, [], -59, -64, ())
     fields = dict(
         address=ADDRESS,
         source=SOURCE,
@@ -54,7 +53,6 @@ def test_equal_rssi_actual_packets_stay_current_but_cached_packets_expire(captur
     scanner = SimpleNamespace(
         address=SOURCE, name="Local", area_id="office", area_name="Office", is_remote_scanner=False, last_seen=100.0
     )
-    scanner.async_as_scanner_get_stamp = lambda address: capture.get_stamp(SOURCE, address)
     device = SimpleNamespace(
         address=ADDRESS.lower(),
         ref_power=-59,
@@ -64,14 +62,14 @@ def test_equal_rssi_actual_packets_stay_current_but_cached_packets_expire(captur
         process_manufacturer_data=lambda _: None,
     )
     options = dict(rssi_offsets={}, ref_power=-59, attenuation=3, max_velocity=3, smoothing_samples=20)
-    link = BermudaAdvert(device, first.advertisement, options, scanner)
+    link = BermudaAdvert(device, first.advertisement, options, scanner, packet_stamp=first.time)
     link.calculate_data()
     capture.drain()
     for tick in range(1, 61):
         clock[0] = 100 + tick
         capture.capture(packet(clock))
         newest = capture.drain()[0]
-        link.update_advertisement(newest.advertisement, scanner)
+        link.update_advertisement(newest.info.advertisement, scanner, packet_stamp=newest.info.time)
         link.calculate_data()
         assert link.rssi_distance is not None
     clock[0] = 160 + AREA_MAX_AD_AGE_DEFAULT + 1
@@ -206,14 +204,19 @@ def test_repeated_observe_at_capacity_never_replaces_a_live_cancel_handle():
     assert sorted(cancelled) == [0, 1, 2]
 
 
-def test_actual_cache_skip_guard_does_not_prevent_distance_expiry(capture_fixture, monkeypatch):
-    """Exercise real coordinator gathering, scanner stamps and advert expiry together."""
-    from custom_components.bermuda.coordinator import BermudaDataUpdateCoordinator
+def test_shared_address_cache_keeps_native_processing(capture_fixture, monkeypatch):
+    """The ordinary cache still reaches the native handler on a proven MAC."""
     from custom_components.bermuda.bermuda_device import BermudaDevice
+    from custom_components.bermuda.coordinator import BermudaDataUpdateCoordinator
 
-    capture, clock, callbacks = capture_fixture
+    capture, clock, _ = capture_fixture
     monkeypatch.setattr("custom_components.bermuda.coordinator.monotonic_time_coarse", lambda: clock[0])
-    coor = SimpleNamespace(local_ibeacon=capture, _scanner_init_pending=False, stamp_last_update_started=0)
+    coor = SimpleNamespace(
+        local_ibeacon=capture,
+        _scanner_init_pending=False,
+        stamp_last_update_started=0,
+        options=dict(rssi_offsets={}, ref_power=-59, attenuation=3, max_velocity=3, smoothing_samples=20),
+    )
     scanner = SimpleNamespace(
         address=SOURCE,
         name="Local",
@@ -222,67 +225,48 @@ def test_actual_cache_skip_guard_does_not_prevent_distance_expiry(capture_fixtur
         is_scanner=True,
         is_remote_scanner=False,
         last_seen=100.0,
-        _coordinator=coor,
         async_as_scanner_update=lambda _: None,
     )
     scanner.async_as_scanner_get_stamp = lambda address: BermudaDevice.async_as_scanner_get_stamp(scanner, address)
     device = SimpleNamespace(
         address=ADDRESS.lower(),
         ref_power=-59,
+        last_seen=0,
         name="Phone",
         name_bt_local_name=None,
         make_name=lambda: None,
         process_manufacturer_data=lambda _: None,
     )
-    options = dict(rssi_offsets={}, ref_power=-59, attenuation=3, max_velocity=3, smoothing_samples=20)
-    links = []
+    beacon = SimpleNamespace(adverts={}, ref_power=-59)
     processed = []
-
-    def process(scanner, advert):
-        processed.append(advert.rssi)
-        if links:
-            links[0].update_advertisement(advert, scanner)
-        else:
-            links.append(BermudaAdvert(device, advert, options, scanner))
-
-    device.process_advertisement = process
+    device.process_advertisement = lambda _, advert: processed.append(advert.rssi)
     coor._get_device = lambda _: scanner
-    coor._get_or_create_device = lambda _: device
+    coor._get_or_create_device = lambda address: beacon if address == IDENTITY else device
+    coor.irk_manager = None
     resolved = []
-    coor.irk_manager = SimpleNamespace(scan_device=lambda address: resolved.append(("irk", address)))
-    coor.fmdn = SimpleNamespace(handle_advertisement=lambda device, _: resolved.append(("fmdn", device.address)))
-
-    def process_scanner_advertisement(scanner, address, advert):
-        BermudaDataUpdateCoordinator._process_scanner_advertisement(coor, scanner, address, advert)
-
-    coor._process_scanner_advertisement = process_scanner_advertisement
-    old = packet(clock).advertisement
-    old.rssi = -95
+    coor.fmdn = SimpleNamespace(handle_advertisement=lambda _, data: resolved.append(data))
+    coor._process_scanner_advertisement = lambda *args: BermudaDataUpdateCoordinator._process_scanner_advertisement(
+        coor, *args
+    )
+    coor._process_local_ibeacon = lambda *args: BermudaDataUpdateCoordinator._process_local_ibeacon(coor, *args)
     backend = SimpleNamespace(
-        source=SOURCE, discovered_devices_and_advertisement_data={ADDRESS: (SimpleNamespace(address=ADDRESS), old)}
+        source=SOURCE,
+        discovered_devices_and_advertisement_data={
+            ADDRESS: (SimpleNamespace(address=ADDRESS), packet(clock).advertisement)
+        },
     )
     coor._hascanners = [backend]
     capture.observe(packet(clock))
     BermudaDataUpdateCoordinator._async_gather_advert_data(coor)
-    links[0].calculate_data()
-    assert links[0].rssi == -64
-    assert resolved == [("irk", ADDRESS), ("fmdn", ADDRESS.lower())]
+
     clock[0] = 104
-    capture.capture(packet(clock))
+    data = {"0000feaa-0000-1000-8000-00805f9b34fb": b"\x40" + bytes(range(20))}
+    later = packet(clock).advertisement._replace(service_data=data, rssi=-72)
+    backend.discovered_devices_and_advertisement_data[ADDRESS] = SimpleNamespace(address=ADDRESS), later
+    capture.capture(packet(clock, raw=None, advertisement=later))
     BermudaDataUpdateCoordinator._async_gather_advert_data(coor)
-    links[0].calculate_data()
-    assert links[0].stamp == 104
-    assert links[0].rssi_distance is not None
-    # Valid local rotations can evict a subscription, but its cache still
-    # cannot replace the last proven packet or refresh distance.
-    for suffix in ("02", "03"):
-        capture.observe(packet(clock, address="AA:BB:CC:DD:EE:" + suffix))
-    assert ADDRESS not in callbacks
-    processed.clear()
-    clock[0] = 104 + AREA_MAX_AD_AGE_DEFAULT + 1
-    coor.stamp_last_update_started = clock[0] - 1
-    BermudaDataUpdateCoordinator._async_gather_advert_data(coor)
-    assert processed == []  # Actual coordinator cache skip guard was taken.
-    assert capture.get_stamp(SOURCE, ADDRESS) == 104
-    links[0].calculate_data()  # Runs independently of gathering in normal coordinator updates.
-    assert links[0].rssi_distance is None
+    assert resolved == [{}, data]
+    assert processed == [-64, -72]
+    link = next(iter(beacon.adverts.values()))
+    assert link.stamp == 100
+    assert link.rssi == -64

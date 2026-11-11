@@ -47,6 +47,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.dt import get_age, now
 
 from .area_selection import AreaSelectionHandler, AreaTests
+from .bermuda_advert import BermudaAdvert
 from .bermuda_device import BermudaDevice
 from .bermuda_irk import BermudaIrkManager
 from .const import (
@@ -113,6 +114,7 @@ if TYPE_CHECKING:
 
     from . import BermudaConfigEntry
     from .filters import UnscentedKalmanFilter
+    from .local_ibeacon import LocalIBeaconPacket
 
 # Using "if" instead of "min/max" triggers PLR1730, but when
 # split over two lines, ruff removes it, then complains again.
@@ -298,9 +300,10 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
                     self.options[key] = val
 
         self.devices: dict[str, BermudaDevice] = {}
-        register_packet = getattr(bluetooth, "async_register_advertisement_callback", None)
         self.local_ibeacon = LocalIBeaconCapture(
-            (lambda cb, address: register_packet(self.hass, cb, address)) if register_packet else None,
+            (lambda cb, address: bluetooth.async_register_advertisement_callback(self.hass, cb, address))
+            if hasattr(bluetooth, "async_register_advertisement_callback")
+            else None,
             lambda: self.options.get(CONF_DEVICES, []),
             lambda source: (scanner := self._get_device(source)) is not None
             and scanner.is_scanner
@@ -1679,12 +1682,6 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
         if self._scanner_init_pending:
             self._refresh_scanners(force=True)
 
-        # Use the packet with the proven time before reading the scanner caches.
-        for info in self.local_ibeacon.drain():
-            scanner = self._get_device(info.source)
-            if scanner is not None and scanner.is_scanner and not scanner.is_remote_scanner:
-                self._process_scanner_advertisement(scanner, info.address, info.advertisement)
-
         for ha_scanner in self._hascanners:
             # Create / Get the BermudaDevice for this scanner
             scanner_device = self._get_device(ha_scanner.source)
@@ -1711,9 +1708,6 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
             # Now go through the scanner's adverts and send them to our device objects.
             for bledevice, advertisementdata in ha_scanner.discovered_devices_and_advertisement_data.values():
                 adstamp = scanner_device.async_as_scanner_get_stamp(bledevice.address)
-                if adstamp is not None and not scanner_device.is_remote_scanner:
-                    # Only the callback packet can use a proven local timestamp.
-                    continue
                 if adstamp and adstamp < self.stamp_last_update_started - 3:
                     continue
                 if advertisementdata.rssi == -127:
@@ -1721,7 +1715,35 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator[Any]):
                     continue
 
                 self._process_scanner_advertisement(scanner_device, bledevice.address, advertisementdata)
+
+        # Keep proven iBeacon readings separate from native scanner-cache readings.
+        for packet in self.local_ibeacon.drain():
+            scanner = self._get_device(packet.info.source)
+            if scanner is not None and scanner.is_scanner and not scanner.is_remote_scanner:
+                self._process_local_ibeacon(scanner, packet)
         return True
+
+    def _process_local_ibeacon(self, scanner: BermudaDevice, packet: LocalIBeaconPacket) -> None:
+        """Update the logical iBeacon from the packet, independently of its MAC record."""
+        info = packet.info
+        source = self._get_or_create_device(info.address)
+        beacon = self._get_or_create_device(packet.identity)
+        key = (source.address, scanner.address)
+        advertisement = info.advertisement._replace(
+            manufacturer_data={76: packet.payload}, service_data={}, service_uuids=[]
+        )
+        now = monotonic_time_coarse()
+        advert = beacon.adverts.get(key)
+        if advert is None or not advert.is_proven_local_ibeacon:
+            advert = BermudaAdvert(source, advertisement, self.options, scanner, nowstamp=now, packet_stamp=info.time)
+            if not advert.stamp:
+                return
+            advert.set_ref_power(beacon.ref_power)
+            beacon.adverts[key] = advert
+        else:
+            advert.update_advertisement(advertisement, scanner, nowstamp=now, packet_stamp=info.time)
+        # Source pruning also needs to see a genuine receipt for this physical address.
+        source.last_seen = max(source.last_seen, advert.stamp)
 
     def _process_scanner_advertisement(
         self, scanner: BermudaDevice, address: str, advertisement: AdvertisementData

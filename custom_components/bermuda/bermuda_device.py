@@ -719,8 +719,7 @@ class BermudaDevice:
             except ValueError:
                 return None
             return self.stamps.get(normalized_address)
-        # Local scanner times are available only for proven iBeacon packets.
-        return self._coordinator.local_ibeacon.get_stamp(self.address, address)
+        return None
 
     @callback
     def async_handle_pble_callback(

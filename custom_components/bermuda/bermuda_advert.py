@@ -145,7 +145,9 @@ class BermudaAdvert(dict[str, Any]):
         scanner_device: BermudaDevice,  # The scanner device that "saw" it.
         *,
         nowstamp: float | None = None,
+        packet_stamp: float | None = None,
     ) -> None:
+        self.is_proven_local_ibeacon = packet_stamp is not None
         self.scanner_address: Final[str] = scanner_device.address
         self.device_address: Final[str] = parent_device.address
         self._device = parent_device
@@ -193,7 +195,7 @@ class BermudaAdvert(dict[str, Any]):
         self.rssi_filtered: float | None = None  # Kalman-filtered RSSI value
 
         # Just pass the rest on to update...
-        self.update_advertisement(advertisementdata, self.scanner_device, nowstamp=nowstamp)
+        self.update_advertisement(advertisementdata, self.scanner_device, nowstamp=nowstamp, packet_stamp=packet_stamp)
 
     def apply_new_scanner(self, scanner_device: BermudaDevice) -> None:
         self.name: str = scanner_device.name  # or scandata.scanner.name
@@ -206,7 +208,12 @@ class BermudaAdvert(dict[str, Any]):
         self.scanner_sends_stamps = scanner_device.is_remote_scanner
 
     def update_advertisement(
-        self, advertisementdata: AdvertisementData, scanner_device: BermudaDevice, *, nowstamp: float | None = None
+        self,
+        advertisementdata: AdvertisementData,
+        scanner_device: BermudaDevice,
+        *,
+        nowstamp: float | None = None,
+        packet_stamp: float | None = None,
     ) -> None:
         """
         Refresh the advert with the latest packet from a scanner.
@@ -240,8 +247,10 @@ class BermudaAdvert(dict[str, Any]):
                     self.area_name = self.scanner_device.area_name
 
         scanner = self.scanner_device
-        new_stamp = scanner.async_as_scanner_get_stamp(self.device_address)
-        if self.scanner_sends_stamps or new_stamp is not None:
+        new_stamp = (
+            scanner.async_as_scanner_get_stamp(self.device_address) if self.scanner_sends_stamps else packet_stamp
+        )
+        if self.scanner_sends_stamps or self.is_proven_local_ibeacon:
             if new_stamp is None:
                 self.stale_update_count += 1
                 return
