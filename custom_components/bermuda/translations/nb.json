@@ -112,6 +112,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Hent rommodell",
+      "description": "Les den valgfrie kalibreringsmodellen og det gjeldende romestimatet."
+    },
+    "save_room_model": {
+      "name": "Lagre rommodell",
+      "description": "Valider og lagre den valgfrie kalibreringsmodellen.",
+      "fields": {
+        "expected_revision": {
+          "name": "Forventet revisjon",
+          "description": "Sist leste revisjon. Bruk null for en ny modell."
+        },
+        "model": {
+          "name": "Rommodell",
+          "description": "Versjonert plantegning, mottakeroppsett og merkede opptak."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Eksporter enheter",
       "description": "Returnerer den interne datastrukturen, eventuelt begrenset til de oppgitte adressene. Inneholder RSSI og annen informasjon fra hver skanner.",

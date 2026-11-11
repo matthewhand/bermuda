@@ -12,14 +12,14 @@ Our baseline is room tracking with three BLE receivers in a single-storey house 
 
 | Goal | Progress | Next check |
 | --- | --- | --- |
-| Keep USB iBeacon readings fresh at steady signal strength | The [USB fix](https://github.com/matthewhand/bermuda/pull/5) passed 174 focused tests on Home Assistant Core 2026.11.0. Core's Bluetooth callback also delivered 60 injected equal-RSSI packets, and the fix rejected a packet without raw proof. | Compare stock and patched builds on the same physical USB scanner with the transmitter stationary. |
+| Keep USB iBeacon readings fresh at steady signal strength | The [USB fix](https://github.com/matthewhand/bermuda/pull/5) passed focused tests on Home Assistant Core 2026.11.0. On the physical USB adapter, Bermuda refreshed its timestamp in all three verified windows with unchanged RSSI. | A comparison of refresh rates would require similar signal strength and packet cadence in both builds. |
 | Track rooms through brief signal gaps | The [opt-in room tracker](https://github.com/matthewhand/bermuda/pull/6) and USB fix passed 208 focused tests together. [Experimental room tracking](#tracking-through-ble-gaps) adds a nearby-first hybrid behind a separate switch. | Improve startup in an unknown room and validate on independently labelled walks. |
 | Reuse calibration with the native fingerprint model | An in-memory import of saved observations produced learned receiver pairs for 9 of 10 rooms. In the remaining room, only one receiver heard the beacon. | Check whether the native tracker can retain a previously confirmed room with one receiver and how it recovers when coverage improves. |
 | Offer a simple floor plan, calibration and replay UI | The editor, recording controls and replay tools exist in the separate Presence project. | Connect them to this fork and verify the workflow with saved recordings. |
 | Use optional location hints | Presence has charging, device activity and directional presence hints. Door-contact support is staged. | Replay each hint independently and verify live watch and door inputs before enabling them. |
 | Estimate continuous map positions | The current experiment produces room labels. | Evaluate continuous coordinates separately once room tracking is reliable on the three-receiver baseline. |
 
-**Next live milestone.** On Core 2026.11.0, compare independently observed USB packet timestamps with Bermuda's reading age in stock and patched runs. Use the same stationary transmitter and receiver setup in both runs, then restore the original installation. This is the validation step before considering a contribution of the USB fix. We keep the USB fix and room-tracking experiment separate for review.
+The stationary USB comparison on Core 2026.11.0 recorded a Bermuda USB reading in 0 of 149 stock polls and 147 of 147 patched polls. Median RSSI was −46 dBm on stock and −74 dBm on the patch, and packet gaps differed. The live capture verifies timestamp refresh at unchanged RSSI in the patched build. The [USB fix](https://github.com/matthewhand/bermuda/pull/5) and [room-tracking experiment](https://github.com/matthewhand/bermuda/pull/6) retain separate review histories.
 
 ## Tracking through BLE gaps
 

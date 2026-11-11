@@ -132,6 +132,7 @@ async def test_setup_defers_cleanup(hass: HomeAssistant) -> None:
         coordinator = coordinator_cls.return_value
         coordinator.async_cleanup_device_registry_connections = _noop
         coordinator.async_refresh = _noop
+        coordinator.room_tracking.async_load = _noop
         coordinator.last_update_success = True
         coordinator.async_cleanup_orphaned_entities = _fail
         await bermuda_init.async_setup_entry(hass, entry)
@@ -157,6 +158,7 @@ async def test_deferred_cleanup_runs_orphan_cleanup(hass: HomeAssistant) -> None
         coordinator = coordinator_cls.return_value
         coordinator.async_cleanup_device_registry_connections = _noop
         coordinator.async_refresh = _noop
+        coordinator.room_tracking.async_load = _noop
         coordinator.last_update_success = True
         coordinator.async_cleanup_orphaned_entities = _record
         await bermuda_init.async_setup_entry(hass, entry)

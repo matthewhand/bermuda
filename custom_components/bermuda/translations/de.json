@@ -171,6 +171,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Raummodell abrufen",
+      "description": "Das optionale Kalibrierungsmodell und die aktuelle Raumschätzung abrufen."
+    },
+    "save_room_model": {
+      "name": "Raummodell speichern",
+      "description": "Das optionale Kalibrierungsmodell prüfen und speichern.",
+      "fields": {
+        "expected_revision": {
+          "name": "Erwartete Revision",
+          "description": "Die zuletzt gelesene Revision. Für ein neues Modell null verwenden."
+        },
+        "model": {
+          "name": "Raummodell",
+          "description": "Versionierter Raumplan, Empfängerkonfiguration und beschriftete Aufzeichnungen."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Geräte exportieren",
       "description": "Gibt die interne Datenstruktur zurück, optional begrenzt auf die angegebenen Adressen. Enthält die RSSI- und andere Informationen von jedem Scanner.",

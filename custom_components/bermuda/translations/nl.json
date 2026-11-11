@@ -166,6 +166,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Ruimtemodel ophalen",
+      "description": "Lees het optionele kalibratiemodel en de huidige ruimteschatting."
+    },
+    "save_room_model": {
+      "name": "Ruimtemodel opslaan",
+      "description": "Valideer het optionele kalibratiemodel en sla het op.",
+      "fields": {
+        "expected_revision": {
+          "name": "Verwachte revisie",
+          "description": "De laatst gelezen revisie. Gebruik nul voor een nieuw model."
+        },
+        "model": {
+          "name": "Ruimtemodel",
+          "description": "Plattegrond met versienummer, ontvangerconfiguratie en gelabelde opnamen."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Dump Devices",
       "description": "Haal de interne gegevensstructuur op, optioneel beperkt tot de opgegeven adressen. Bevat de RSSI en andere informatie van elke scanner",

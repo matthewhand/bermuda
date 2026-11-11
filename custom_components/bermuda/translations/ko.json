@@ -161,6 +161,24 @@
         }
     },
     "services": {
+    "get_room_model": {
+      "name": "방 모델 가져오기",
+      "description": "선택적 보정 모델과 현재 추정된 방을 읽습니다."
+    },
+    "save_room_model": {
+      "name": "방 모델 저장",
+      "description": "선택적 보정 모델을 검증하고 저장합니다.",
+      "fields": {
+        "expected_revision": {
+          "name": "예상 리비전",
+          "description": "마지막으로 읽은 리비전입니다. 새 모델에는 0을 사용하세요."
+        },
+        "model": {
+          "name": "방 모델",
+          "description": "버전이 지정된 방 배치, 수신기 설정 및 라벨이 지정된 기록입니다."
+        }
+      }
+    },
         "dump_devices": {
             "name": "장치 정보 내보내기",
             "description": "내부 데이터 구조를 반환합니다. 선택적으로 주어진 주소로 제한할 수 있습니다. 각 스캐너의 RSSI 및 기타 정보를 포함합니다.",

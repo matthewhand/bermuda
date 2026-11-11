@@ -27,6 +27,7 @@ def _make_coordinator() -> MagicMock:
     hass = MagicMock()
     hass.data = {}
     coordinator = MagicMock()
+    coordinator.local_ibeacon.get_stamp.return_value = None
     coordinator.hass = hass
     coordinator.options = {
         CONF_ATTENUATION: DEFAULT_ATTENUATION,

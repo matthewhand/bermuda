@@ -207,6 +207,7 @@ class TestAsyncUnloadEntry:
             correlations=correlations,
             room_profiles=room_profiles,
             correlation_store=MagicMock(async_save=AsyncMock()),
+            room_tracking=SimpleNamespace(async_close=AsyncMock()),
         )
         return SimpleNamespace(runtime_data=SimpleNamespace(coordinator=coordinator))
 

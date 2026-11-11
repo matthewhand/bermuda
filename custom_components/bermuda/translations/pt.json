@@ -161,6 +161,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Obter modelo de divisões",
+      "description": "Ler o modelo de calibração opcional e a estimativa atual da divisão."
+    },
+    "save_room_model": {
+      "name": "Guardar modelo de divisões",
+      "description": "Validar e guardar o modelo de calibração opcional.",
+      "fields": {
+        "expected_revision": {
+          "name": "Revisão esperada",
+          "description": "A última revisão lida. Use zero para um novo modelo."
+        },
+        "model": {
+          "name": "Modelo de divisões",
+          "description": "Planta com versão, configuração dos recetores e gravações etiquetadas."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Exportar Dispositivos",
       "description": "Retorna a estrutura de dados interna, limitada opcionalmente aos endereços fornecidos. Inclui o RSSI e outras informações de cada scanner.",
