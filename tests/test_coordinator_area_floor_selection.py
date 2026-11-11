@@ -30,6 +30,8 @@ from custom_components.bermuda.const import (
 def _make_coordinator(hass: HomeAssistant) -> BermudaDataUpdateCoordinator:
     """Create a lightweight coordinator instance."""
     coordinator = BermudaDataUpdateCoordinator.__new__(BermudaDataUpdateCoordinator)
+    coordinator.local_ibeacon = MagicMock()
+    coordinator.local_ibeacon.get_stamp.return_value = None
     coordinator.hass = hass
     coordinator.options = {
         CONF_MAX_RADIUS: DEFAULT_MAX_RADIUS,

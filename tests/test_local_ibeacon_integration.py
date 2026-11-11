@@ -58,6 +58,7 @@ async def test_real_callback_to_metadevice_and_reload(hass, setup_bermuda_entry,
 
     with (
         patch("custom_components.bermuda.coordinator.monotonic_time_coarse", lambda: now[0]),
+        patch("custom_components.bermuda.bermuda_device.monotonic_time_coarse", lambda: now[0]),
         patch("custom_components.bermuda.bermuda_advert.monotonic_time_coarse", lambda: now[0]),
     ):
         send(start)

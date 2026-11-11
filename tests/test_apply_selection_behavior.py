@@ -32,6 +32,8 @@ from custom_components.bermuda.area_selection import AreaSelectionHandler
 def _make_coordinator(hass: HomeAssistant) -> BermudaDataUpdateCoordinator:
     """Build a minimal coordinator suitable for BermudaDevice construction."""
     coordinator = BermudaDataUpdateCoordinator.__new__(BermudaDataUpdateCoordinator)
+    coordinator.local_ibeacon = MagicMock()
+    coordinator.local_ibeacon.get_stamp.return_value = None
     coordinator.hass = hass
     coordinator.options = {
         CONF_DEVTRACK_TIMEOUT: DEFAULT_DEVTRACK_TIMEOUT,
