@@ -64,6 +64,7 @@ def _make_coordinator(hass: HomeAssistant) -> BermudaDataUpdateCoordinator:
     coordinator.device_ukfs = {}
     coordinator.correlations = {}
     coordinator.room_profiles = {}
+    coordinator.room_tracking = MagicMock()
     coordinator._correlations_loaded = True
     coordinator._last_correlation_save = 0.0
     coordinator.correlation_store = MagicMock(async_save=AsyncMock())

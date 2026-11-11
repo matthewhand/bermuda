@@ -112,6 +112,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Lire le modèle des pièces",
+      "description": "Lire le modèle d’étalonnage facultatif et la pièce estimée."
+    },
+    "save_room_model": {
+      "name": "Enregistrer le modèle des pièces",
+      "description": "Vérifier et enregistrer le modèle d’étalonnage facultatif.",
+      "fields": {
+        "expected_revision": {
+          "name": "Révision attendue",
+          "description": "Dernière révision lue. Utiliser zéro pour un nouveau modèle."
+        },
+        "model": {
+          "name": "Modèle des pièces",
+          "description": "Plan versionné, configuration des récepteurs et enregistrements étiquetés."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Exporter les appareils",
       "description": "Renvoie la structure de données interne, éventuellement limitée aux adresses indiquées. Contient le RSSI et d'autres informations de chaque scanner.",

@@ -218,6 +218,7 @@ def _cycle_coordinator(
     """Coordinator with 3 active scanners and ``stale_devices`` devices past their tracker timeout."""
     coordinator = _make_coordinator(hass)
     coordinator.options[CONF_DEVTRACK_TIMEOUT] = 30
+    coordinator.room_tracking = MagicMock()
     for idx in range(3):
         scanner = coordinator._get_or_create_device(f"11:22:33:44:55:{idx:02X}")
         scanner.last_seen = now[0] - 1

@@ -171,6 +171,24 @@
     }
   },
   "services": {
+    "get_room_model": {
+      "name": "Get room model",
+      "description": "Read the optional calibration model and current learned-room estimate."
+    },
+    "save_room_model": {
+      "name": "Save room model",
+      "description": "Validate and save the optional calibration model.",
+      "fields": {
+        "expected_revision": {
+          "name": "Expected revision",
+          "description": "The last read revision. Use zero for a new model."
+        },
+        "model": {
+          "name": "Room model",
+          "description": "Versioned room layout, receiver configuration and labelled recordings."
+        }
+      }
+    },
     "dump_devices": {
       "name": "Dump Devices",
       "description": "Returns the internal data structure, optionally limited to the given address(es). Includes the rssi and other info from each scanner",
