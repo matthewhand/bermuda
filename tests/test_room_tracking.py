@@ -127,6 +127,36 @@ def test_hybrid_decay_tracks_observed_packet_cadence(model):
     assert "provisionalLocation" not in tracker.update(unknown, 23000, {}, model)
 
 
+@pytest.mark.parametrize(
+    ("native_room", "evidence", "expected"),
+    [
+        ("west", {"a": 10000, "b": 10000}, None),
+        ("corridor", {"a": 10000, "b": 10000}, "corridor"),
+        ("west", {"a": 10000, "b": 1000}, "west"),
+    ],
+)
+def test_hybrid_first_tentative_room_checks_the_fresh_fingerprint_shortlist(model, native_room, evidence, expected):
+    tracker = AdaptiveRoomTracker(decay_intervals=2, travel_seconds=4)
+    estimate = {
+        "kind": "uncertain",
+        "candidates": [fix("east")["candidates"][0], fix("corridor")["candidates"][0]],
+    }
+    result = tracker.update(estimate, 10000, evidence, model, native_room=native_room)
+    assert result.get("provisionalLocation") == expected
+    assert result["location"] is None
+
+
+def test_hybrid_shortlist_does_not_erase_an_existing_tentative_room(model):
+    tracker = AdaptiveRoomTracker(decay_intervals=2, travel_seconds=4)
+    unknown = {"kind": "unknown", "candidates": []}
+    assert tracker.update(unknown, 0, {"a": 0}, model, native_room="west")["provisionalLocation"] == "west"
+    estimate = {"kind": "uncertain", "candidates": [fix("east")["candidates"][0]]}
+    result = tracker.update(estimate, 1000, {"a": 1000, "b": 1000}, model, native_room="west")
+    assert result["provisionalLocation"] == "west"
+    result = tracker.update(estimate, 29001, {"a": 29001, "b": 29001}, model, native_room="west")
+    assert "provisionalLocation" not in result
+
+
 @pytest.mark.parametrize(("travel_seconds", "expected"), [(2.5, "corridor"), (4, None)])
 def test_hybrid_adjacent_travel_setting_is_independent_of_decay(model, travel_seconds, expected):
     tracker = AdaptiveRoomTracker(decay_intervals=4, travel_seconds=travel_seconds)

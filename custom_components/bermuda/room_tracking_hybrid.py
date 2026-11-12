@@ -48,6 +48,25 @@ class AdaptiveRoomTracker(TemporalTracker):
     def _nearby(previous: str | None, room: str, connections: Sequence[Sequence[str]]) -> bool:
         return previous == room or any(previous in edge and room in edge for edge in connections)
 
+    def _native_startup_allowed(
+        self,
+        room: str,
+        candidates: Sequence[dict[str, Any]],
+        now: float,
+        evidence: Mapping[str, float],
+        eligible: Collection[str],
+    ) -> bool:
+        """Use the learned shortlist when two current receiver readings support it."""
+        if not candidates or any(candidate["roomId"] == room for candidate in candidates[:2]):
+            return True
+        return (
+            sum(
+                key in eligible and -500 <= now - evidence.get(key, -inf) <= self.PACKET_MAX_AGE_MS
+                for key in candidates[0]["supporting"]
+            )
+            < 2
+        )
+
     def _nearby_estimate(
         self,
         estimate: dict[str, Any],
@@ -98,13 +117,15 @@ class AdaptiveRoomTracker(TemporalTracker):
         if self.confirmed is None:
             if now - self._provisional_at > self.HOLD_MS:
                 self._provisional_room = None
-            if (
-                native_room is not None
-                and packet is not None
-                and (self._provisional_room is None or self._nearby(self._provisional_room, native_room, connections))
-            ):
-                self._provisional_room = native_room
-                self._provisional_at = packet
+            if native_room is not None and packet is not None:
+                allowed = (
+                    self._native_startup_allowed(native_room, estimate["candidates"], now, evidence, eligible)
+                    if self._provisional_room is None
+                    else self._nearby(self._provisional_room, native_room, connections)
+                )
+                if allowed:
+                    self._provisional_room = native_room
+                    self._provisional_at = packet
             if self._provisional_room is not None:
                 result["provisionalLocation"] = self._provisional_room
                 result["reason"] = "Tentative room from the native fingerprint estimator"
